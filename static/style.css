@@ -1,0 +1,157 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+    background: white;
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+
+h1 { text-align: center; margin-bottom: 25px; color: #333; }
+h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
+
+/* --- نموذج الإدخال --- */
+.form-card {
+    background: #f8f9ff;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 25px;
+}
+
+#sub-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    align-items: center;
+}
+
+#sub-form input,
+#sub-form select {
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+}
+
+#sub-form label {
+    font-size: 13px;
+    color: #666;
+    align-self: end;
+}
+
+#sub-form button {
+    padding: 10px 20px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+#sub-form button:hover { background: #5568d3; }
+.btn-secondary { background: #999 !important; }
+.btn-secondary:hover { background: #777 !important; }
+
+/* --- الجدول --- */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+th, td {
+    padding: 12px;
+    text-align: center;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+
+th { background: #667eea; color: white; font-weight: 600; }
+tr:hover { background: #f5f7ff; }
+
+/* --- شارات الحالة --- */
+.status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: bold;
+    display: inline-block;
+}
+.status.active { background: #d4f8e8; color: #0a7; }
+.status.expired { background: #ffe4e4; color: #c00; }
+.status.cancelled { background: #eee; color: #666; }
+
+/* --- أزرار الجدول --- */
+td button:not(.btn-danger) {
+    background: #ffa502;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+button.btn-danger {
+    background: #ff4757;
+    color: white;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+/* --- شريط تنبيه قاعدة البيانات --- */
+.db-alert {
+    position: fixed;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #ff4757;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    z-index: 9999;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    font-weight: bold;
+    font-size: 14px;
+    animation: slideDown 0.3s ease;
+    max-width: 90%;
+}
+
+.db-alert button {
+    background: white;
+    color: #ff4757;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.db-alert.hidden { display: none; }
+
+@keyframes slideDown {
+    from { top: -80px; opacity: 0; }
+    to   { top: 15px;  opacity: 1; }
+}
