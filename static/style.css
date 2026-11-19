@@ -1,25 +1,52 @@
+/* ============================================================
+   إعادة الضبط والأساسيات
+   ============================================================ */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+    --primary: #667eea;
+    --primary-dark: #5568d3;
+    --danger: #ff4757;
+    --warning: #ffa502;
+    --success: #0a7;
+    --bg-grad: linear-gradient(135deg, #667eea, #764ba2);
+    --card: #ffffff;
+    --text: #333;
+    --muted: #666;
+    --border: #ddd;
+    --radius: 12px;
+}
 
 body {
     font-family: 'Segoe UI', Tahoma, sans-serif;
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: var(--bg-grad);
     min-height: 100vh;
     padding: 20px;
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .container {
     max-width: 1200px;
     margin: auto;
-    background: white;
+    background: var(--card);
     border-radius: 15px;
     padding: 30px;
     box-shadow: 0 10px 40px rgba(0,0,0,0.2);
 }
 
-h1 { text-align: center; margin-bottom: 25px; color: #333; }
+h1 {
+    text-align: center;
+    margin-bottom: 25px;
+    color: #333;
+    font-size: clamp(1.2rem, 4vw, 1.8rem);
+}
 h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
 
-/* --- نموذج الإدخال --- */
+/* ============================================================
+   نموذج الإدخال
+   ============================================================ */
 .form-card {
     background: #f8f9ff;
     padding: 20px;
@@ -35,43 +62,117 @@ h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
 }
 
 #sub-form input,
-#sub-form select {
+#sub-form select,
+#sub-form textarea {
     padding: 10px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 8px;
     font-size: 14px;
     font-family: inherit;
+    background: #fff;
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    width: 100%;
+}
+
+#sub-form input:focus,
+#sub-form select:focus,
+#sub-form textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(102,126,234,0.15);
+}
+
+#sub-form textarea {
+    min-height: 70px;
+    resize: vertical;
 }
 
 #sub-form label {
     font-size: 13px;
-    color: #666;
+    color: var(--muted);
     align-self: end;
 }
 
+/* حقل الكود بخط ثابت */
+#sub-form #code {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* صفوف الـ checkbox */
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text);
+    transition: border-color 0.15s, background 0.15s;
+}
+.checkbox-row:hover { border-color: var(--primary); background: #f0f4ff; }
+.checkbox-row input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--primary);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* أزرار النموذج */
+.form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+
 #sub-form button {
-    padding: 10px 20px;
-    background: #667eea;
-    color: white;
+    padding: 11px 22px;
+    background: var(--primary);
+    color: #fff;
     border: none;
     border-radius: 8px;
     cursor: pointer;
     font-weight: bold;
     font-size: 14px;
+    transition: background 0.15s, transform 0.1s;
+    flex: 1;
+    min-width: 120px;
 }
+#sub-form button:hover { background: var(--primary-dark); }
+#sub-form button:active { transform: scale(0.98); }
 
-#sub-form button:hover { background: #5568d3; }
 .btn-secondary { background: #999 !important; }
 .btn-secondary:hover { background: #777 !important; }
 
-/* --- الجدول --- */
+/* ============================================================
+   جدول الاشتراكات
+   ============================================================ */
+.table-wrap {
+    border-radius: 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    background: #fff;
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
     background: white;
     border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    min-width: 1100px;
 }
 
 th, td {
@@ -79,51 +180,97 @@ th, td {
     text-align: center;
     border-bottom: 1px solid #eee;
     font-size: 14px;
+    white-space: nowrap;
 }
 
-th { background: #667eea; color: white; font-weight: 600; }
-tr:hover { background: #f5f7ff; }
+th {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
 
-/* --- شارات الحالة --- */
+tr:hover { background: #f5f7ff; }
+tbody tr:last-child td { border-bottom: none; }
+
+/* الكود بخط ثابت */
+.code-cell {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    color: var(--primary-dark);
+    letter-spacing: 0.5px;
+}
+
+/* ============================================================
+   شارات الحالة
+   ============================================================ */
 .status {
     padding: 4px 12px;
     border-radius: 20px;
     font-size: 12px;
     font-weight: bold;
     display: inline-block;
+    white-space: nowrap;
 }
-.status.active { background: #d4f8e8; color: #0a7; }
-.status.expired { background: #ffe4e4; color: #c00; }
-.status.cancelled { background: #eee; color: #666; }
+.status.active    { background: #d4f8e8; color: var(--success); }
+.status.inactive  { background: #eee;    color: #666; }
+.status.expired   { background: #ffe4e4; color: #c00; }
+.status.cancelled { background: #fff3cd; color: #856404; }
 
-/* --- أزرار الجدول --- */
+/* شارات إضافية (تجريبي / مدى الحياة) */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-inline-start: 4px;
+    white-space: nowrap;
+}
+.badge.trial    { background: #dbeafe; color: #1e40af; }
+.badge.lifetime { background: #ede9fe; color: #6d28d9; }
+
+/* ============================================================
+   أزرار الجدول
+   ============================================================ */
 td button:not(.btn-danger) {
-    background: #ffa502;
+    background: var(--warning);
     color: white;
     border: none;
     padding: 6px 10px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
+    transition: background 0.15s, transform 0.1s;
 }
+td button:not(.btn-danger):hover { background: #e59400; }
+td button:not(.btn-danger):active { transform: scale(0.95); }
 
 button.btn-danger {
-    background: #ff4757;
+    background: var(--danger);
     color: white;
     border: none;
     padding: 6px 10px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 13px;
+    transition: background 0.15s, transform 0.1s;
 }
+button.btn-danger:hover { background: #e03040; }
+button.btn-danger:active { transform: scale(0.95); }
 
-/* --- شريط تنبيه قاعدة البيانات --- */
+/* ============================================================
+   شريط تنبيه قاعدة البيانات
+   ============================================================ */
 .db-alert {
     position: fixed;
     top: 15px;
     left: 50%;
     transform: translateX(-50%);
-    background: #ff4757;
+    background: var(--danger);
     color: white;
     padding: 12px 20px;
     border-radius: 10px;
@@ -136,22 +283,136 @@ button.btn-danger {
     font-size: 14px;
     animation: slideDown 0.3s ease;
     max-width: 90%;
+    flex-wrap: wrap;
 }
 
 .db-alert button {
     background: white;
-    color: #ff4757;
+    color: var(--danger);
     border: none;
     padding: 6px 12px;
     border-radius: 6px;
     cursor: pointer;
     font-weight: bold;
     white-space: nowrap;
+    transition: background 0.15s;
 }
+.db-alert button:hover { background: #f0f0f0; }
 
 .db-alert.hidden { display: none; }
 
 @keyframes slideDown {
     from { top: -80px; opacity: 0; }
     to   { top: 15px;  opacity: 1; }
+}
+
+/* ============================================================
+   استجابة الجوال (≤ 768px)
+   ============================================================ */
+@media (max-width: 768px) {
+    body { padding: 10px; }
+
+    .container {
+        padding: 16px;
+        border-radius: 12px;
+    }
+
+    h1 { margin-bottom: 16px; }
+    h2 { font-size: 16px; }
+
+    .form-card { padding: 14px; }
+
+    #sub-form {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+
+    .form-actions {
+        flex-direction: column;
+    }
+    .form-actions button { width: 100%; }
+
+    /* تحويل الجدول إلى بطاقات */
+    .table-wrap {
+        background: transparent;
+        box-shadow: none;
+        overflow: visible;
+    }
+
+    table,
+    thead,
+    tbody,
+    tr,
+    td {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    thead { display: none; }
+
+    tbody tr {
+        background: var(--card);
+        border-radius: var(--radius);
+        margin-bottom: 14px;
+        padding: 14px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        border: 1px solid #eef0ff;
+    }
+
+    tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 7px 0;
+        border: none;
+        white-space: normal;
+        text-align: left;
+        gap: 12px;
+        font-size: 13px;
+    }
+
+    tbody td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--muted);
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+
+    /* خانة الإجراءات */
+    tbody td[data-label="إجراءات"] {
+        justify-content: flex-start;
+        padding-top: 10px;
+        margin-top: 6px;
+        border-top: 1px solid #eee;
+        gap: 10px;
+    }
+    tbody td[data-label="إجراءات"]::before { display: none; }
+
+    tbody td[data-label="إجراءات"] button {
+        flex: 1;
+        padding: 10px;
+        font-size: 14px;
+    }
+
+    /* شريط التنبيه على الجوال */
+    .db-alert {
+        left: 10px;
+        right: 10px;
+        transform: none;
+        max-width: none;
+        font-size: 13px;
+        padding: 10px 14px;
+    }
+}
+
+/* ============================================================
+   شاشات صغيرة جداً (≤ 380px)
+   ============================================================ */
+@media (max-width: 380px) {
+    body { padding: 6px; }
+    .container { padding: 12px; }
+    tbody td { font-size: 12px; }
+    tbody td::before { font-size: 11px; }
 }
