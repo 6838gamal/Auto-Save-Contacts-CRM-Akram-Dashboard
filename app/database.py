@@ -17,15 +17,18 @@ engine = None
 SessionLocal = None
 
 if not DATABASE_URL:
-    logger.error("❌ لم يتم العثور على DATABASE_URL في ملف .env")
+    logger.error("❌ لم يتم العثور على DATABASE_URL في متغيرات البيئة")
 else:
     try:
         engine = create_engine(
             DATABASE_URL,
             pool_pre_ping=True,
             pool_recycle=300,
+            pool_size=5,
+            max_overflow=10,
         )
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        logger.info("✅ تم إنشاء engine بنجاح")
     except Exception as e:
         logger.error(f"❌ فشل إنشاء الـ engine: {e}")
 
@@ -33,9 +36,8 @@ Base = declarative_base()
 
 
 def check_db_connection() -> tuple[bool, str]:
-    """يعيد (True, "") إذا الاتصال ناجح، أو (False, رسالة) عند الفشل."""
     if engine is None:
-        return False, "لم يتم إعداد DATABASE_URL في ملف .env"
+        return False, "لم يتم إعداد DATABASE_URL"
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
@@ -48,8 +50,8 @@ def check_db_connection() -> tuple[bool, str]:
         return False, f"خطأ غير متوقع: {str(e)}"
 
 
-def init_db(max_retries: int = 3, delay: int = 2) -> bool:
-    """يحاول إنشاء الجداول مع إعادة المحاولة. لا يرمي استثناء."""
+def init_db(max_retries: int = 10, delay: int = 3) -> bool:
+    """مهم في Docker: ننتظر حتى تجهز قاعدة البيانات."""
     if engine is None:
         logger.error("❌ لا يمكن تهيئة قاعدة البيانات: engine غير موجود")
         return False
@@ -75,7 +77,6 @@ def init_db(max_retries: int = 3, delay: int = 2) -> bool:
 
 
 def get_db():
-    """Dependency: يرفع HTTPException بدل أن يكسر التطبيق."""
     from fastapi import HTTPException, status
 
     if SessionLocal is None:
