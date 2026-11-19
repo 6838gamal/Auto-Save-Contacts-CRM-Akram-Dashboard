@@ -1,18 +1,39 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, BigInteger, DateTime, text
 from datetime import datetime
 from .database import Base
 
 
 class Subscription(Base):
-    __tablename__ = "subscriptions"
+    __tablename__ = "subscription_codes"
 
-    id = Column(Integer, primary_key=True, index=True)
-    subscriber_name = Column(String, nullable=False)
-    email = Column(String, nullable=False)
-    phone = Column(String)
-    plan_name = Column(String, nullable=False)
-    price = Column(Float, nullable=False)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
-    status = Column(String, default="active")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # ---- المفتاح الأساسي: الكود ----
+    code = Column(String, primary_key=True, index=True)
+
+    # ---- اسم الباقة ----
+    plan_label = Column(String, nullable=False, server_default="اشتراك مفعل")
+
+    # ---- أعلام الاشتراك ----
+    is_subscribed = Column(Boolean, nullable=False, server_default=text("TRUE"))
+    is_active = Column(Boolean, nullable=False, server_default=text("TRUE"))
+    is_trial = Column(Boolean, nullable=False, server_default=text("FALSE"))
+    is_lifetime = Column(Boolean, nullable=False, server_default=text("FALSE"))
+
+    # ---- المدة والحصص ----
+    duration_minutes = Column(BigInteger, nullable=False, server_default=text("43200"))
+    max_contacts = Column(Integer, nullable=True)
+    used_contacts = Column(Integer, nullable=False, server_default=text("0"))
+
+    # ---- الربط بالجهاز/الشبكة ----
+    bound_user_id = Column(String, nullable=True)
+    bound_ip = Column(String, nullable=True)
+
+    # ---- التواريخ (epoch ms) ----
+    activated_at = Column(BigInteger, nullable=True)
+    expires_at = Column(BigInteger, nullable=True)
+
+    # ---- ملاحظات ----
+    notes = Column(String, nullable=False, server_default="")
+
+    # ---- طوابع زمنية ----
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"), onupdate=datetime.utcnow)
