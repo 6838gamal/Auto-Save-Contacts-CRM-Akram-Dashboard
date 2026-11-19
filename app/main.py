@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="لوحة إدارة الاشتراكات", lifespan=lifespan)
+app = FastAPI(title="لوحة إدارة أكواد الاشتراك", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -68,36 +68,55 @@ def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# --- API Endpoints ---
+# ============================================================
+# API Endpoints — المفتاح الأساسي هو code (نص)
+# ============================================================
+
 @app.get("/api/subscriptions", response_model=List[schemas.SubscriptionResponse])
-def list_subscriptions(db: Session = Depends(get_db)):
-    return crud.get_subscriptions(db)
+def list_subscriptions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return crud.get_subscriptions(db, skip=skip, limit=limit)
 
 
-@app.get("/api/subscriptions/{sub_id}", response_model=schemas.SubscriptionResponse)
-def get_subscription(sub_id: int, db: Session = Depends(get_db)):
-    sub = crud.get_subscription(db, sub_id)
+@app.get("/api/subscriptions/{code}", response_model=schemas.SubscriptionResponse)
+def get_subscription(code: str, db: Session = Depends(get_db)):
+    sub = crud.get_subscription(db, code)
     if not sub:
-        raise HTTPException(status_code=404, detail="الاشتراك غير موجود")
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
     return sub
 
 
 @app.post("/api/subscriptions", response_model=schemas.SubscriptionResponse, status_code=201)
 def create_subscription(sub: schemas.SubscriptionCreate, db: Session = Depends(get_db)):
+    # منع التكرار قبل محاولة الإدراج (رسالة أوضح من خطأ PK)
+    existing = crud.get_subscription(db, sub.code)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"الكود '{sub.code.strip().upper()}' موجود مسبقاً",
+        )
     return crud.create_subscription(db, sub)
 
 
-@app.put("/api/subscriptions/{sub_id}", response_model=schemas.SubscriptionResponse)
-def update_subscription(sub_id: int, sub: schemas.SubscriptionUpdate, db: Session = Depends(get_db)):
-    updated = crud.update_subscription(db, sub_id, sub)
+@app.put("/api/subscriptions/{code}", response_model=schemas.SubscriptionResponse)
+def update_subscription(code: str, sub: schemas.SubscriptionUpdate, db: Session = Depends(get_db)):
+    updated = crud.update_subscription(db, code, sub)
     if not updated:
-        raise HTTPException(status_code=404, detail="الاشتراك غير موجود")
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
     return updated
 
 
-@app.delete("/api/subscriptions/{sub_id}")
-def delete_subscription(sub_id: int, db: Session = Depends(get_db)):
-    deleted = crud.delete_subscription(db, sub_id)
+@app.delete("/api/subscriptions/{code}")
+def delete_subscription(code: str, db: Session = Depends(get_db)):
+    deleted = crud.delete_subscription(db, code)
     if not deleted:
-        raise HTTPException(status_code=404, detail="الاشتراك غير موجود")
-    return {"message": "تم الحذف بنجاح"}
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
+    return {"message": f"تم حذف الكود '{code}' بنجاح"}
+
+
+# --- نقطة إضافية اختيارية: جلب اشتراك نشط لمستخدم (تطابق findApprovedCodeForUser في Kotlin) ---
+@app.get("/api/subscriptions/by-user/{user_id}", response_model=schemas.SubscriptionResponse)
+def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
+    sub = crud.get_subscription_by_user(db, user_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="لا يوجد اشتراك نشط لهذا المستخدم")
+    return sub
