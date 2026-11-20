@@ -38,37 +38,45 @@
                     </div>
                 </div>
 
-                <!-- الحد الأقصى لجهات الاتصال -->
-                <div>
-                    <label for="max_contacts">الحد الأقصى لجهات الاتصال</label>
-                    <select id="max_contacts">
-                        <option value="">بلا حد (∞)</option>
-                        <option value="100">100</option>
-                        <option value="500">500</option>
-                        <option value="1000">1000</option>
-                        <option value="5000">5000</option>
-                        <option value="10000">10000</option>
-                    </select>
-                </div>
-
-                <!-- المستخدم المرتبط: بحث + اختيار من قاعدة البيانات -->
+                <!-- الجهاز المرتبط: بحث + اختيار من قاعدة البيانات -->
                 <div class="user-picker" style="grid-column:1/-1;">
-                    <label for="user-search">المستخدم المرتبط</label>
+                    <label for="user-search">الجهاز المرتبط (يُجلب من قاعدة البيانات)</label>
                     <div class="user-picker-box">
                         <input type="hidden" id="bound_user_id">
                         <input type="text" id="user-search"
-                               placeholder="🔍 اكتب اسم المستخدم أو ID للبحث..."
+                               placeholder="🔍 اكتب معرّف الجهاز أو IP للبحث..."
                                autocomplete="off">
+                        <button type="button" class="user-add" onclick="addManualDevice()" title="إضافة جهاز يدوياً">➕</button>
                         <button type="button" class="user-clear" onclick="clearUser()" title="إزالة الربط">✖</button>
                         <div id="user-dropdown" class="user-dropdown hidden"></div>
                     </div>
                     <small id="user-selected-hint" class="user-hint"></small>
                 </div>
 
-                <!-- IP المرتبط -->
+                <!-- بطاقة تفاصيل الجهاز (تظهر عند اختيار جهاز) -->
+                <div id="user-details-card" class="user-details-card hidden" style="grid-column:1/-1;">
+                    <div class="detail-item">
+                        <span class="detail-label">🆔 معرّف الجهاز</span>
+                        <span class="detail-value mono" id="detail-id">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🌐 IP</span>
+                        <span class="detail-value mono" id="detail-ip">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">📅 أول ظهور</span>
+                        <span class="detail-value" id="detail-created">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🔗 عدد الاشتراكات</span>
+                        <span class="detail-value" id="detail-count">-</span>
+                    </div>
+                </div>
+
+                <!-- IP المرتبط (يُملأ تلقائياً من بيانات الجهاز) -->
                 <div>
                     <label for="bound_ip">عنوان IP المرتبط</label>
-                    <input type="text" id="bound_ip" placeholder="مثال: 1.2.3.4 (اختياري)">
+                    <input type="text" id="bound_ip" placeholder="يُملأ تلقائياً من بيانات الجهاز">
                 </div>
 
                 <!-- تاريخ الانتهاء -->
@@ -100,8 +108,7 @@
                 <thead>
                     <tr>
                         <th>الكود</th>
-                        <th>الحصة</th>
-                        <th>المستخدم المرتبط</th>
+                        <th>الجهاز المرتبط</th>
                         <th>IP</th>
                         <th>الانتهاء</th>
                         <th>الحالة</th>
@@ -119,14 +126,14 @@
 
     <script>
         const API = "/api/subscriptions";
-        const USERS_API = "/api/users";   // ← عدّل المسار حسب خادمك
+        const USERS_API = "/api/users";   // الأجهزة من جدول الاشتراكات
         let retryTimer = null;
 
         /* ===== ثوابت الاشتراك السنوي ===== */
         const FIXED_PLAN_LABEL = "اشتراك سنوي";
         const FIXED_DURATION_MINUTES = 525600; // سنة واحدة
 
-        /* ===== كاش المستخدمين ===== */
+        /* ===== كاش الأجهزة ===== */
         let allUsers = [];
         let selectedUser = null;
 
@@ -192,6 +199,14 @@
             return d.toLocaleDateString("ar-EG") + " " +
                    d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
         }
+        function fmtDateStr(s) {
+            if (!s) return "-";
+            try {
+                const d = new Date(s);
+                if (isNaN(d.getTime())) return "-";
+                return d.toLocaleDateString("ar-EG");
+            } catch { return "-"; }
+        }
         function epochToInput(ms) { return ms ? String(ms) : ""; }
 
         function statusBadge(s) {
@@ -210,12 +225,15 @@
                 .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
 
-        /* ===== المستخدمون ===== */
+        /* ===== الأجهزة ===== */
         function userId(u) {
             return u.user_id ?? u.id ?? u.telegram_id ?? "";
         }
         function userName(u) {
             return u.name ?? u.username ?? u.full_name ?? u.first_name ?? userId(u);
+        }
+        function userIp(u) {
+            return u.ip ?? u.last_ip ?? u.bound_ip ?? "";
         }
 
         async function loadUsers() {
@@ -223,15 +241,16 @@
                 const res = await fetch(USERS_API);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 allUsers = await res.json();
+                // إن كان هناك جهاز محدد سابقاً (وضع التعديل) اعرضه
                 if (document.getElementById("bound_user_id").value) {
                     const id = document.getElementById("bound_user_id").value;
                     const u = allUsers.find(x => String(userId(x)) === String(id));
                     if (u) selectUser(u, false);
                 }
             } catch (err) {
-                console.warn("تعذّر جلب المستخدمين:", err.message);
+                console.warn("تعذّر جلب الأجهزة:", err.message);
                 const dd = document.getElementById("user-dropdown");
-                dd.innerHTML = `<div class="user-empty">⚠️ تعذّر جلب المستخدمين: ${err.message}</div>`;
+                dd.innerHTML = `<div class="user-empty">⚠️ تعذّر جلب الأجهزة: ${err.message}</div>`;
             }
         }
 
@@ -243,19 +262,25 @@
                 list = allUsers.filter(u => {
                     const name = String(userName(u)).toLowerCase();
                     const id = String(userId(u)).toLowerCase();
-                    return name.includes(q) || id.includes(q);
+                    const ip = String(userIp(u)).toLowerCase();
+                    return name.includes(q) || id.includes(q) || ip.includes(q);
                 });
             }
             const shown = list.slice(0, 50);
             if (!shown.length) {
-                dd.innerHTML = `<div class="user-empty">لا توجد نتائج مطابقة</div>`;
+                dd.innerHTML = `<div class="user-empty">لا توجد نتائج مطابقة — استخدم ➕ لإضافة جهاز يدوياً</div>`;
             } else {
-                dd.innerHTML = shown.map(u => `
+                dd.innerHTML = shown.map(u => {
+                    const ip = userIp(u);
+                    const ipHtml = ip ? `<span class="user-ip">🌐 ${escapeHtml(String(ip))}</span>` : "";
+                    return `
                     <div class="user-item" onclick='selectUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>
-                        <span class="user-name">${escapeHtml(String(userName(u)))}</span>
-                        <span class="user-id">${escapeHtml(String(userId(u)))}</span>
-                    </div>
-                `).join("");
+                        <div class="user-info">
+                            <span class="user-name mono">${escapeHtml(String(userName(u)))}</span>
+                        </div>
+                        ${ipHtml}
+                    </div>`;
+                }).join("");
                 if (list.length > 50) {
                     dd.innerHTML += `<div class="user-empty">… و ${list.length - 50} نتيجة أخرى (ضيّق البحث)</div>`;
                 }
@@ -263,25 +288,66 @@
             dd.classList.remove("hidden");
         }
 
+        /* ===== اختيار جهاز: ملء تلقائي لكل البيانات ===== */
         function selectUser(u, updateInput = true) {
             selectedUser = u;
             document.getElementById("bound_user_id").value = userId(u);
             if (updateInput) {
                 document.getElementById("user-search").value = userName(u);
             }
+
+            // ✅ ملء IP تلقائياً من بيانات الجهاز
+            const ip = userIp(u);
+            document.getElementById("bound_ip").value = ip || "";
+
+            // ✅ إظهار بطاقة تفاصيل الجهاز
+            showUserDetails(u);
+
             const hint = document.getElementById("user-selected-hint");
-            hint.textContent = `✅ مرتبط بـ: ${userName(u)} (ID: ${userId(u)})`;
+            hint.textContent = `✅ مرتبط بالجهاز: ${userId(u)}`;
             hint.style.color = "var(--success)";
             document.getElementById("user-dropdown").classList.add("hidden");
+        }
+
+        function showUserDetails(u) {
+            const card = document.getElementById("user-details-card");
+            document.getElementById("detail-id").textContent = userId(u) || "-";
+            document.getElementById("detail-ip").textContent = userIp(u) || "—";
+            document.getElementById("detail-created").textContent = fmtDateStr(u.created_at);
+            document.getElementById("detail-count").textContent = u.subscription_count ?? "-";
+            card.classList.remove("hidden");
+        }
+
+        function hideUserDetails() {
+            document.getElementById("user-details-card").classList.add("hidden");
         }
 
         function clearUser() {
             selectedUser = null;
             document.getElementById("bound_user_id").value = "";
             document.getElementById("user-search").value = "";
+            document.getElementById("bound_ip").value = "";
             const hint = document.getElementById("user-selected-hint");
             hint.textContent = "";
             document.getElementById("user-dropdown").classList.add("hidden");
+            hideUserDetails();
+        }
+
+        /* ===== إضافة جهاز يدوياً ===== */
+        function addManualDevice() {
+            const id = prompt("أدخل معرّف الجهاز (user_id):");
+            if (!id || !id.trim()) return;
+            const trimmed = id.trim();
+            let u = allUsers.find(x => String(userId(x)) === trimmed);
+            if (!u) {
+                u = { user_id: trimmed, name: trimmed, ip: null, subscription_count: 0 };
+                allUsers.push(u);
+            }
+            selectUser(u);
+            const ip = prompt("أدخل عنوان IP للجهاز (اختياري):", document.getElementById("bound_ip").value || "");
+            if (ip !== null) {
+                document.getElementById("bound_ip").value = ip.trim();
+            }
         }
 
         function bindUserPicker() {
@@ -307,23 +373,21 @@
         function renderTable(data) {
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
-                const quota = s.max_contacts
-                    ? `${s.used_contacts || 0} / ${s.max_contacts}`
-                    : `${s.used_contacts || 0} / ∞`;
-
                 const userObj = allUsers.find(u => String(userId(u)) === String(s.bound_user_id));
-                const userNameDisplay = userObj ? userName(userObj) : (s.bound_user_id || "-");
+                const deviceDisplay = s.bound_user_id
+                    ? (userObj ? String(userName(userObj)) : s.bound_user_id)
+                    : "-";
+                const ipDisplay = s.bound_ip || (userObj ? userIp(userObj) : "") || "-";
 
                 return `
                 <tr>
                     <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
-                    <td data-label="الحصة">${quota}</td>
-                    <td data-label="المستخدم المرتبط">${escapeHtml(String(userNameDisplay))}</td>
-                    <td data-label="IP">${escapeHtml(s.bound_ip || "-")}</td>
+                    <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(deviceDisplay)}</td>
+                    <td data-label="IP" class="mono">${escapeHtml(String(ipDisplay))}</td>
                     <td data-label="الانتهاء">${s.is_lifetime ? "∞" : fmtEpoch(s.expires_at)}</td>
                     <td data-label="الحالة">${statusBadge(s)}</td>
                     <td data-label="ملاحظات">${escapeHtml(s.notes || "-")}</td>
@@ -377,8 +441,7 @@
                 is_trial: false,
                 is_lifetime: false,
                 duration_minutes: FIXED_DURATION_MINUTES,
-                max_contacts: document.getElementById("max_contacts").value
-                    ? parseInt(document.getElementById("max_contacts").value, 10) : null,
+                max_contacts: null,
                 used_contacts: 0,
                 bound_user_id: document.getElementById("bound_user_id").value || null,
                 bound_ip: document.getElementById("bound_ip").value.trim() || null,
@@ -399,6 +462,7 @@
             if (result) {
                 resetForm();
                 loadSubs();
+                loadUsers(); // تحديث قائمة الأجهزة بعد الحفظ
             }
         });
 
@@ -406,7 +470,6 @@
         function editSub(s) {
             document.getElementById("sub-code-hidden").value = s.code;
             document.getElementById("code").value = s.code;
-            document.getElementById("max_contacts").value = s.max_contacts ?? "";
             document.getElementById("bound_ip").value = s.bound_ip || "";
             document.getElementById("expires_at").value = epochToInput(s.expires_at);
             document.getElementById("is_active").checked = !!s.is_active;
@@ -420,7 +483,7 @@
                     document.getElementById("bound_user_id").value = s.bound_user_id;
                     document.getElementById("user-search").value = s.bound_user_id;
                     const hint = document.getElementById("user-selected-hint");
-                    hint.textContent = `⚠️ مستخدم غير موجود في القائمة (ID: ${s.bound_user_id})`;
+                    hint.textContent = `⚠️ جهاز غير موجود في القائمة (ID: ${s.bound_user_id})`;
                     hint.style.color = "var(--warning)";
                 }
             } else {
@@ -435,7 +498,10 @@
         async function deleteSub(code) {
             if (!confirm(`هل أنت متأكد من حذف الكود "${code}"؟`)) return;
             const result = await safeFetch(`${API}/${encodeURIComponent(code)}`, { method: "DELETE" });
-            if (result) loadSubs();
+            if (result) {
+                loadSubs();
+                loadUsers();
+            }
         }
 
         /* ===== إعادة تعيين ===== */
@@ -443,7 +509,6 @@
             document.getElementById("sub-form").reset();
             document.getElementById("sub-code-hidden").value = "";
             document.getElementById("code").value = "";
-            document.getElementById("max_contacts").value = "";
             document.getElementById("is_active").checked = true;
             document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك سنوي جديد";
             clearUser();
