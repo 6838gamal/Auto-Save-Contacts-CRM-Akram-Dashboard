@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from sqlalchemy import text
 from typing import List
 
 from . import schemas, crud
@@ -69,7 +70,7 @@ def index(request: Request):
 
 
 # ============================================================
-# API Endpoints — المفتاح الأساسي هو code (نص)
+# API Endpoints — الاشتراكات (المفتاح الأساسي هو code)
 # ============================================================
 
 @app.get("/api/subscriptions", response_model=List[schemas.SubscriptionResponse])
@@ -87,7 +88,6 @@ def get_subscription(code: str, db: Session = Depends(get_db)):
 
 @app.post("/api/subscriptions", response_model=schemas.SubscriptionResponse, status_code=201)
 def create_subscription(sub: schemas.SubscriptionCreate, db: Session = Depends(get_db)):
-    # منع التكرار قبل محاولة الإدراج (رسالة أوضح من خطأ PK)
     existing = crud.get_subscription(db, sub.code)
     if existing:
         raise HTTPException(
@@ -113,10 +113,72 @@ def delete_subscription(code: str, db: Session = Depends(get_db)):
     return {"message": f"تم حذف الكود '{code}' بنجاح"}
 
 
-# --- نقطة إضافية اختيارية: جلب اشتراك نشط لمستخدم (تطابق findApprovedCodeForUser في Kotlin) ---
+# --- نقطة إضافية: جلب اشتراك نشط لمستخدم ---
 @app.get("/api/subscriptions/by-user/{user_id}", response_model=schemas.SubscriptionResponse)
 def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
     sub = crud.get_subscription_by_user(db, user_id)
     if not sub:
         raise HTTPException(status_code=404, detail="لا يوجد اشتراك نشط لهذا المستخدم")
     return sub
+
+
+# ============================================================
+# API Endpoints — الأجهزة (مستخرجة من جدول subscription_codes)
+# ============================================================
+# لا يوجد جدول مستخدمين/أجهزة منفصل، لذا نبني القائمة من
+# الصفوف التي لها bound_user_id غير فارغ (كل جهاز = bound_user_id فريد).
+# ============================================================
+
+@app.get("/api/users")
+def list_devices(
+    skip: int = 0,
+    limit: int = 5000,
+    q: str = Query(None, description="بحث بالمعرف/IP"),
+    db: Session = Depends(get_db),
+):
+    """قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات."""
+    if q:
+        return crud.search_devices(db, q, limit=limit)
+    return crud.get_devices(db, skip=skip, limit=limit)
+
+
+@app.get("/api/users/{device_id}")
+def device_details(device_id: str, db: Session = Depends(get_db)):
+    details = crud.get_device(db, device_id)
+    if not details:
+        raise HTTPException(status_code=404, detail=f"الجهاز '{device_id}' غير موجود")
+    return details
+
+
+@app.get("/api/users/{device_id}/ips")
+def device_ips(device_id: str, db: Session = Depends(get_db)):
+    """كل عناوين IP المرتبطة بجهاز معيّن (من كل اشتراكاته)."""
+    return {"device_id": device_id, "ips": crud.get_ips_for_device(db, device_id)}
+
+
+# ============================================================
+# نقطة تشخيص سريعة (اختيارية)
+# ============================================================
+
+@app.get("/api/stats")
+def stats(db: Session = Depends(get_db)):
+    """إحصاءات سريعة للوحة."""
+    total = db.query(crud.models.Subscription).count()
+    active = (
+        db.query(crud.models.Subscription)
+        .filter(crud.models.Subscription.is_active == True)
+        .count()
+    )
+    bound = (
+        db.query(crud.models.Subscription)
+        .filter(
+            crud.models.Subscription.bound_user_id.isnot(None),
+            crud.models.Subscription.bound_user_id != "",
+        )
+        .count()
+    )
+    return {
+        "total_subscriptions": total,
+        "active_subscriptions": active,
+        "bound_subscriptions": bound,
+    }
