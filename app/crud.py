@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
+from datetime import datetime
 from . import models, schemas
 
 
@@ -18,7 +19,6 @@ def get_subscriptions(db: Session, skip: int = 0, limit: int = 100):
 
 
 def get_subscription(db: Session, code: str):
-    """جلب كود اشتراك بواسطة الكود (المفتاح الأساسي)."""
     return (
         db.query(models.Subscription)
         .filter(models.Subscription.code == code.strip().upper())
@@ -28,9 +28,12 @@ def get_subscription(db: Session, code: str):
 
 def create_subscription(db: Session, sub: schemas.SubscriptionCreate):
     data = sub.model_dump()
-    # توحيد صيغة الكود (نفس ما يفعله Kotlin: trim().uppercase())
     if data.get("code"):
         data["code"] = data["code"].strip().upper()
+    if not data.get("plan_label"):
+        data["plan_label"] = "اشتراك سنوي"
+    if not data.get("duration_minutes"):
+        data["duration_minutes"] = 525600
     db_sub = models.Subscription(**data)
     db.add(db_sub)
     db.commit()
@@ -43,10 +46,10 @@ def update_subscription(db: Session, code: str, sub: schemas.SubscriptionUpdate)
     if not db_sub:
         return None
     data = sub.model_dump(exclude_unset=True)
-    # منع تغيير المفتاح الأساسي عبر التحديث
     data.pop("code", None)
     for key, value in data.items():
         setattr(db_sub, key, value)
+    db_sub.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(db_sub)
     return db_sub
@@ -61,7 +64,6 @@ def delete_subscription(db: Session, code: str):
 
 
 def get_subscription_by_user(db: Session, user_id: str):
-    """جلب اشتراك نشط مرتبط بمستخدم معيّن (مطابق لـ findApprovedCodeForUser في Kotlin)."""
     return (
         db.query(models.Subscription)
         .filter(
@@ -75,95 +77,94 @@ def get_subscription_by_user(db: Session, user_id: str):
 
 
 # ============================================================
-# المستخدمون (Users) — لجلب البيانات من قاعدة البيانات
+# "الأجهزة" — مستخرجة من جدول الاشتراكات نفسه
 # ============================================================
 
-def get_users(db: Session, skip: int = 0, limit: int = 5000):
-    """
-    جلب قائمة المستخدمين مع بيانات الحساب والـ IP.
-    يعيد قائمة من القواميس جاهزة للـ JSON.
-    """
-    users = (
-        db.query(models.User)
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-    return [_serialize_user(u) for u in users]
+def get_devices(db: Session, skip: int = 0, limit: int = 5000):
+    """قائمة الأجهزة/المستخدمين المعروفين (group by bound_user_id)."""
+    sql = text("""
+        SELECT
+            bound_user_id AS user_id,
+            MAX(bound_ip) AS ip,
+            MIN(created_at) AS created_at,
+            COUNT(*) AS subscription_count
+        FROM subscription_codes
+        WHERE bound_user_id IS NOT NULL AND bound_user_id <> ''
+        GROUP BY bound_user_id
+        ORDER BY MAX(updated_at) DESC
+        OFFSET :skip LIMIT :limit
+    """)
+    rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
+    return [_serialize_device(r) for r in rows]
 
 
-def get_user(db: Session, user_id: str):
-    """جلب مستخدم واحد بواسطة المعرف."""
-    return (
-        db.query(models.User)
-        .filter(models.User.user_id == user_id)
-        .first()
-    )
+def get_device(db: Session, device_id: str):
+    sql = text("""
+        SELECT
+            bound_user_id AS user_id,
+            MAX(bound_ip) AS ip,
+            MIN(created_at) AS created_at,
+            COUNT(*) AS subscription_count
+        FROM subscription_codes
+        WHERE bound_user_id = :device_id
+        GROUP BY bound_user_id
+        LIMIT 1
+    """)
+    row = db.execute(sql, {"device_id": device_id}).fetchone()
+    return _serialize_device(row) if row else None
 
 
-def get_user_details(db: Session, user_id: str):
-    """
-    جلب تفاصيل مستخدم واحد (بما فيها IP وتفاصيل الحساب)
-    جاهزة للاستخدام في الواجهة.
-    """
-    u = get_user(db, user_id)
-    if not u:
-        return None
-    return _serialize_user(u)
-
-
-def search_users(db: Session, query: str, limit: int = 50):
-    """
-    البحث في المستخدمين بالاسم أو المعرف أو الـ IP.
-    مفيد للـ API عند الكتابة في حقل البحث.
-    """
+def search_devices(db: Session, query: str, limit: int = 50):
     q = f"%{query.strip()}%"
-    users = (
-        db.query(models.User)
-        .filter(
-            (models.User.name.ilike(q))
-            | (models.User.user_id.ilike(q))
-            | (models.User.ip.ilike(q))
+    sql = text("""
+        SELECT
+            bound_user_id AS user_id,
+            MAX(bound_ip) AS ip,
+            MIN(created_at) AS created_at,
+            COUNT(*) AS subscription_count
+        FROM subscription_codes
+        WHERE bound_user_id IS NOT NULL
+          AND bound_user_id <> ''
+          AND (bound_user_id ILIKE :q OR bound_ip ILIKE :q)
+        GROUP BY bound_user_id
+        ORDER BY MAX(updated_at) DESC
+        LIMIT :limit
+    """)
+    rows = db.execute(sql, {"q": q, "limit": limit}).fetchall()
+    return [_serialize_device(r) for r in rows]
+
+
+def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
+    rows = (
+        db.query(
+            models.Subscription.bound_ip,
+            func.max(models.Subscription.updated_at).label("last_seen"),
         )
+        .filter(
+            models.Subscription.bound_user_id == device_id,
+            models.Subscription.bound_ip.isnot(None),
+            models.Subscription.bound_ip != "",
+        )
+        .group_by(models.Subscription.bound_ip)
+        .order_by(func.max(models.Subscription.updated_at).desc())
         .limit(limit)
         .all()
     )
-    return [_serialize_user(u) for u in users]
+    return [r.bound_ip for r in rows if r.bound_ip]
 
 
-# ============================================================
-# دالة مساعدة: تحويل كائن المستخدم إلى dict
-# ============================================================
-
-def _serialize_user(u) -> dict:
-    """
-    تحويل كائن User إلى قاموس JSON-friendly.
-    تدعم أسماء أعمدة متعددة (name/full_name/first_name... إلخ)
-    حتى تعمل مع هياكل مختلفة لقواعد البيانات.
-    """
+def _serialize_device(row) -> dict:
+    if row is None:
+        return {}
+    m = dict(row._mapping)
+    for k, v in m.items():
+        if isinstance(v, datetime):
+            m[k] = v.isoformat()
+    uid = str(m.get("user_id") or "")
     return {
-        "user_id": str(getattr(u, "user_id", None) or getattr(u, "id", None) or ""),
-        "name": (
-            getattr(u, "name", None)
-            or getattr(u, "full_name", None)
-            or getattr(u, "first_name", None)
-            or getattr(u, "username", None)
-            or str(getattr(u, "user_id", None) or getattr(u, "id", None) or "")
-        ),
-        "username": getattr(u, "username", None),
-        "ip": (
-            getattr(u, "ip", None)
-            or getattr(u, "last_ip", None)
-            or getattr(u, "bound_ip", None)
-        ),
-        "phone": (
-            getattr(u, "phone", None)
-            or getattr(u, "mobile", None)
-            or getattr(u, "phone_number", None)
-        ),
-        "created_at": (
-            getattr(u, "created_at", None).isoformat()
-            if getattr(u, "created_at", None) and hasattr(getattr(u, "created_at", None), "isoformat")
-            else getattr(u, "created_at", None)
-        ),
+        "user_id": uid,
+        "name": uid,
+        "ip": m.get("ip"),
+        "created_at": m.get("created_at"),
+        "subscription_count": m.get("subscription_count", 0),
     }
