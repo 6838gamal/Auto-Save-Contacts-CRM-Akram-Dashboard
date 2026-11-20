@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة إدارة أكواد الاشتراك</title>
+    <title>لوحة إدارة أكواد الاشتراك السنوي</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
     <!-- شريط علوي للجوال -->
     <div class="mobile-topbar">
-        <span class="mobile-title">📋 إدارة الاشتراكات</span>
+        <span class="mobile-title">📋 إدارة الاشتراكات السنوية</span>
         <button class="mobile-add-btn" onclick="scrollToForm()">➕ كود جديد</button>
     </div>
 
@@ -21,11 +21,11 @@
     </div>
 
     <div class="container">
-        <h1>📋 لوحة إدارة أكواد الاشتراك</h1>
+        <h1>📋 لوحة إدارة أكواد الاشتراك السنوي</h1>
 
         <!-- نموذج إضافة/تعديل -->
         <div class="form-card" id="form-card">
-            <h2 id="form-title">➕ إضافة كود اشتراك جديد</h2>
+            <h2 id="form-title">➕ إضافة كود اشتراك سنوي جديد</h2>
             <form id="sub-form">
                 <input type="hidden" id="sub-code-hidden">
 
@@ -36,36 +36,6 @@
                         <input type="text" id="code" readonly placeholder="سيتم توليده تلقائياً">
                         <button type="button" onclick="generateCode()" title="توليد كود جديد">🎲</button>
                     </div>
-                </div>
-
-                <!-- الباقة: قائمة منسدلة -->
-                <div>
-                    <label for="plan_label">الباقة *</label>
-                    <select id="plan_label" required>
-                        <option value="">-- اختر الباقة --</option>
-                        <option value="اشتراك أسبوعي">اشتراك أسبوعي</option>
-                        <option value="اشتراك شهري">اشتراك شهري</option>
-                        <option value="اشتراك ربع سنوي">اشتراك ربع سنوي</option>
-                        <option value="اشتراك نصف سنوي">اشتراك نصف سنوي</option>
-                        <option value="اشتراك سنوي">اشتراك سنوي</option>
-                        <option value="اشتراك مدى الحياة">اشتراك مدى الحياة</option>
-                        <option value="باقة تجريبية">باقة تجريبية</option>
-                        <option value="اشتراك مخصص">اشتراك مخصص</option>
-                    </select>
-                </div>
-
-                <!-- المدة: قائمة منسدلة -->
-                <div>
-                    <label for="duration_minutes">المدة</label>
-                    <select id="duration_minutes">
-                        <option value="0">بدون مدة</option>
-                        <option value="1440">يوم واحد (1440 د)</option>
-                        <option value="10080">أسبوع (10080 د)</option>
-                        <option value="43200" selected>شهر (43200 د)</option>
-                        <option value="129600">3 أشهر (129600 د)</option>
-                        <option value="259200">6 أشهر (259200 د)</option>
-                        <option value="525600">سنة (525600 د)</option>
-                    </select>
                 </div>
 
                 <!-- الحد الأقصى لجهات الاتصال -->
@@ -108,23 +78,8 @@
                 </div>
 
                 <label class="checkbox-row">
-                    <input type="checkbox" id="is_subscribed" checked>
-                    <span>مشترك</span>
-                </label>
-
-                <label class="checkbox-row">
                     <input type="checkbox" id="is_active" checked>
                     <span>مفعّل</span>
-                </label>
-
-                <label class="checkbox-row">
-                    <input type="checkbox" id="is_trial">
-                    <span>باقة تجريبية</span>
-                </label>
-
-                <label class="checkbox-row">
-                    <input type="checkbox" id="is_lifetime">
-                    <span>مدى الحياة</span>
                 </label>
 
                 <div style="grid-column:1/-1;">
@@ -145,8 +100,6 @@
                 <thead>
                     <tr>
                         <th>الكود</th>
-                        <th>الباقة</th>
-                        <th>المدة (د)</th>
                         <th>الحصة</th>
                         <th>المستخدم المرتبط</th>
                         <th>IP</th>
@@ -169,6 +122,10 @@
         const USERS_API = "/api/users";   // ← عدّل المسار حسب خادمك
         let retryTimer = null;
 
+        /* ===== ثوابت الاشتراك السنوي ===== */
+        const FIXED_PLAN_LABEL = "اشتراك سنوي";
+        const FIXED_DURATION_MINUTES = 525600; // سنة واحدة
+
         /* ===== كاش المستخدمين ===== */
         let allUsers = [];
         let selectedUser = null;
@@ -178,7 +135,7 @@
             const form = document.getElementById("form-card");
             form.scrollIntoView({ behavior: "smooth", block: "start" });
             setTimeout(() => {
-                const el = document.getElementById("plan_label");
+                const el = document.getElementById("user-search");
                 if (el) el.focus();
             }, 400);
         }
@@ -350,17 +307,13 @@
         function renderTable(data) {
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
                 const quota = s.max_contacts
                     ? `${s.used_contacts || 0} / ${s.max_contacts}`
                     : `${s.used_contacts || 0} / ∞`;
-                const planBadges = [
-                    s.is_trial ? '<span class="badge trial">تجريبي</span>' : '',
-                    s.is_lifetime ? '<span class="badge lifetime">مدى الحياة</span>' : ''
-                ].join("");
 
                 const userObj = allUsers.find(u => String(userId(u)) === String(s.bound_user_id));
                 const userNameDisplay = userObj ? userName(userObj) : (s.bound_user_id || "-");
@@ -368,8 +321,6 @@
                 return `
                 <tr>
                     <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
-                    <td data-label="الباقة">${escapeHtml(s.plan_label || "-")}${planBadges}</td>
-                    <td data-label="المدة (د)">${s.duration_minutes ?? "-"}</td>
                     <td data-label="الحصة">${quota}</td>
                     <td data-label="المستخدم المرتبط">${escapeHtml(String(userNameDisplay))}</td>
                     <td data-label="IP">${escapeHtml(s.bound_ip || "-")}</td>
@@ -417,17 +368,15 @@
 
             const codeValue = document.getElementById("code").value.trim().toUpperCase();
             if (!codeValue) { alert("❌ يرجى توليد كود أولاً"); return; }
-            const planValue = document.getElementById("plan_label").value;
-            if (!planValue) { alert("❌ يرجى اختيار الباقة"); return; }
 
             const body = {
                 code: codeValue,
-                plan_label: planValue,
-                is_subscribed: document.getElementById("is_subscribed").checked,
+                plan_label: FIXED_PLAN_LABEL,
+                is_subscribed: true,
                 is_active: document.getElementById("is_active").checked,
-                is_trial: document.getElementById("is_trial").checked,
-                is_lifetime: document.getElementById("is_lifetime").checked,
-                duration_minutes: parseInt(document.getElementById("duration_minutes").value, 10) || 0,
+                is_trial: false,
+                is_lifetime: false,
+                duration_minutes: FIXED_DURATION_MINUTES,
                 max_contacts: document.getElementById("max_contacts").value
                     ? parseInt(document.getElementById("max_contacts").value, 10) : null,
                 used_contacts: 0,
@@ -457,15 +406,10 @@
         function editSub(s) {
             document.getElementById("sub-code-hidden").value = s.code;
             document.getElementById("code").value = s.code;
-            document.getElementById("plan_label").value = s.plan_label || "";
-            document.getElementById("duration_minutes").value = String(s.duration_minutes ?? 43200);
             document.getElementById("max_contacts").value = s.max_contacts ?? "";
             document.getElementById("bound_ip").value = s.bound_ip || "";
             document.getElementById("expires_at").value = epochToInput(s.expires_at);
-            document.getElementById("is_subscribed").checked = !!s.is_subscribed;
             document.getElementById("is_active").checked = !!s.is_active;
-            document.getElementById("is_trial").checked = !!s.is_trial;
-            document.getElementById("is_lifetime").checked = !!s.is_lifetime;
             document.getElementById("notes").value = s.notes || "";
 
             if (s.bound_user_id) {
@@ -499,12 +443,9 @@
             document.getElementById("sub-form").reset();
             document.getElementById("sub-code-hidden").value = "";
             document.getElementById("code").value = "";
-            document.getElementById("plan_label").value = "";
-            document.getElementById("duration_minutes").value = "43200";
             document.getElementById("max_contacts").value = "";
-            document.getElementById("is_subscribed").checked = true;
             document.getElementById("is_active").checked = true;
-            document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك جديد";
+            document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك سنوي جديد";
             clearUser();
             generateCode();
         }
