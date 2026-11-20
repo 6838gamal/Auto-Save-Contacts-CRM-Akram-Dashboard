@@ -8,6 +8,12 @@
 </head>
 <body>
 
+    <!-- شريط علوي للجوال -->
+    <div class="mobile-topbar">
+        <span class="mobile-title">📋 إدارة الاشتراكات</span>
+        <button class="mobile-add-btn" onclick="scrollToForm()">➕ كود جديد</button>
+    </div>
+
     <!-- شريط تنبيه تعذر الاتصال -->
     <div id="db-alert" class="db-alert hidden">
         ⚠️ <span id="db-alert-msg">تعذّر الاتصال بقاعدة البيانات</span>
@@ -18,47 +24,84 @@
         <h1>📋 لوحة إدارة أكواد الاشتراك</h1>
 
         <!-- نموذج إضافة/تعديل -->
-        <div class="form-card">
+        <div class="form-card" id="form-card">
             <h2 id="form-title">➕ إضافة كود اشتراك جديد</h2>
             <form id="sub-form">
                 <input type="hidden" id="sub-code-hidden">
 
+                <!-- الكود: للعرض فقط + زر توليد -->
                 <div>
-                    <label for="code">كود الاشتراك *</label>
-                    <input type="text" id="code" placeholder="مثال: ABC-123-XYZ" required>
+                    <label for="code">كود الاشتراك (يُولَّد تلقائياً)</label>
+                    <div class="code-input-group">
+                        <input type="text" id="code" readonly placeholder="سيتم توليده تلقائياً">
+                        <button type="button" onclick="generateCode()" title="توليد كود جديد">🎲</button>
+                    </div>
                 </div>
 
+                <!-- الباقة: قائمة منسدلة -->
                 <div>
-                    <label for="plan_label">اسم الباقة *</label>
-                    <input type="text" id="plan_label" placeholder="مثال: باقة سنوية" value="اشتراك مفعل" required>
+                    <label for="plan_label">الباقة *</label>
+                    <select id="plan_label" required>
+                        <option value="">-- اختر الباقة --</option>
+                        <option value="اشتراك أسبوعي">اشتراك أسبوعي</option>
+                        <option value="اشتراك شهري">اشتراك شهري</option>
+                        <option value="اشتراك ربع سنوي">اشتراك ربع سنوي</option>
+                        <option value="اشتراك نصف سنوي">اشتراك نصف سنوي</option>
+                        <option value="اشتراك سنوي">اشتراك سنوي</option>
+                        <option value="اشتراك مدى الحياة">اشتراك مدى الحياة</option>
+                        <option value="باقة تجريبية">باقة تجريبية</option>
+                        <option value="اشتراك مخصص">اشتراك مخصص</option>
+                    </select>
                 </div>
 
+                <!-- المدة: قائمة منسدلة -->
                 <div>
-                    <label for="duration_minutes">المدة (بالدقائق)</label>
-                    <input type="number" id="duration_minutes" min="0" step="1" value="43200"
-                           placeholder="43200 = 30 يوم">
+                    <label for="duration_minutes">المدة</label>
+                    <select id="duration_minutes">
+                        <option value="0">بدون مدة</option>
+                        <option value="1440">يوم واحد (1440 د)</option>
+                        <option value="10080">أسبوع (10080 د)</option>
+                        <option value="43200" selected>شهر (43200 د)</option>
+                        <option value="129600">3 أشهر (129600 د)</option>
+                        <option value="259200">6 أشهر (259200 د)</option>
+                        <option value="525600">سنة (525600 د)</option>
+                    </select>
                 </div>
 
+                <!-- الحد الأقصى لجهات الاتصال -->
                 <div>
                     <label for="max_contacts">الحد الأقصى لجهات الاتصال</label>
-                    <input type="number" id="max_contacts" min="0" step="1" placeholder="اتركه فارغاً = بلا حد">
+                    <select id="max_contacts">
+                        <option value="">بلا حد (∞)</option>
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                        <option value="5000">5000</option>
+                        <option value="10000">10000</option>
+                    </select>
                 </div>
 
-                <div>
-                    <label for="used_contacts">جهات الاتصال المستهلكة</label>
-                    <input type="number" id="used_contacts" min="0" step="1" value="0">
+                <!-- المستخدم المرتبط: بحث + اختيار من قاعدة البيانات -->
+                <div class="user-picker" style="grid-column:1/-1;">
+                    <label for="user-search">المستخدم المرتبط</label>
+                    <div class="user-picker-box">
+                        <input type="hidden" id="bound_user_id">
+                        <input type="text" id="user-search"
+                               placeholder="🔍 اكتب اسم المستخدم أو ID للبحث..."
+                               autocomplete="off">
+                        <button type="button" class="user-clear" onclick="clearUser()" title="إزالة الربط">✖</button>
+                        <div id="user-dropdown" class="user-dropdown hidden"></div>
+                    </div>
+                    <small id="user-selected-hint" class="user-hint"></small>
                 </div>
 
-                <div>
-                    <label for="bound_user_id">معرف المستخدم المرتبط</label>
-                    <input type="text" id="bound_user_id" placeholder="user_id (اختياري)">
-                </div>
-
+                <!-- IP المرتبط -->
                 <div>
                     <label for="bound_ip">عنوان IP المرتبط</label>
                     <input type="text" id="bound_ip" placeholder="مثال: 1.2.3.4 (اختياري)">
                 </div>
 
+                <!-- تاريخ الانتهاء -->
                 <div>
                     <label for="expires_at">تاريخ الانتهاء (epoch ms)</label>
                     <input type="number" id="expires_at" step="1" placeholder="اتركه فارغاً للتفعيل التلقائي">
@@ -66,22 +109,22 @@
 
                 <label class="checkbox-row">
                     <input type="checkbox" id="is_subscribed" checked>
-                    <span>مشترك (is_subscribed)</span>
+                    <span>مشترك</span>
                 </label>
 
                 <label class="checkbox-row">
                     <input type="checkbox" id="is_active" checked>
-                    <span>مفعّل (is_active)</span>
+                    <span>مفعّل</span>
                 </label>
 
                 <label class="checkbox-row">
                     <input type="checkbox" id="is_trial">
-                    <span>باقة تجريبية (is_trial)</span>
+                    <span>باقة تجريبية</span>
                 </label>
 
                 <label class="checkbox-row">
                     <input type="checkbox" id="is_lifetime">
-                    <span>مدى الحياة (is_lifetime)</span>
+                    <span>مدى الحياة</span>
                 </label>
 
                 <div style="grid-column:1/-1;">
@@ -118,9 +161,37 @@
         </div>
     </div>
 
+    <!-- زر عائم للجوال -->
+    <button class="fab" onclick="scrollToForm()" title="إضافة كود">➕</button>
+
     <script>
         const API = "/api/subscriptions";
+        const USERS_API = "/api/users";   // ← عدّل المسار حسب خادمك
         let retryTimer = null;
+
+        /* ===== كاش المستخدمين ===== */
+        let allUsers = [];
+        let selectedUser = null;
+
+        /* ===== التمرير للنموذج ===== */
+        function scrollToForm() {
+            const form = document.getElementById("form-card");
+            form.scrollIntoView({ behavior: "smooth", block: "start" });
+            setTimeout(() => {
+                const el = document.getElementById("plan_label");
+                if (el) el.focus();
+            }, 400);
+        }
+
+        /* ===== توليد كود اشتراك ===== */
+        function generateCode() {
+            const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+            const groups = [4, 4, 4];
+            const code = groups.map(len =>
+                Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
+            ).join("-");
+            document.getElementById("code").value = code;
+        }
 
         /* ===== أدوات مساعدة ===== */
         function scheduleRetry() {
@@ -157,7 +228,6 @@
             }
         }
 
-        /* تنسيق التاريخ من epoch ms */
         function fmtEpoch(ms) {
             if (!ms) return "-";
             const d = new Date(Number(ms));
@@ -165,10 +235,7 @@
             return d.toLocaleDateString("ar-EG") + " " +
                    d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
         }
-
-        function epochToInput(ms) {
-            return ms ? String(ms) : "";
-        }
+        function epochToInput(ms) { return ms ? String(ms) : ""; }
 
         function statusBadge(s) {
             if (!s.is_active) return `<span class="status inactive">متوقف</span>`;
@@ -179,6 +246,107 @@
             return `<span class="status cancelled">غير مشترك</span>`;
         }
 
+        function escapeHtml(str) {
+            if (str == null) return "";
+            return String(str)
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+        }
+
+        /* ===== المستخدمون ===== */
+        function userId(u) {
+            return u.user_id ?? u.id ?? u.telegram_id ?? "";
+        }
+        function userName(u) {
+            return u.name ?? u.username ?? u.full_name ?? u.first_name ?? userId(u);
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await fetch(USERS_API);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                allUsers = await res.json();
+                if (document.getElementById("bound_user_id").value) {
+                    const id = document.getElementById("bound_user_id").value;
+                    const u = allUsers.find(x => String(userId(x)) === String(id));
+                    if (u) selectUser(u, false);
+                }
+            } catch (err) {
+                console.warn("تعذّر جلب المستخدمين:", err.message);
+                const dd = document.getElementById("user-dropdown");
+                dd.innerHTML = `<div class="user-empty">⚠️ تعذّر جلب المستخدمين: ${err.message}</div>`;
+            }
+        }
+
+        function showUserDropdown(filter = "") {
+            const dd = document.getElementById("user-dropdown");
+            const q = filter.trim().toLowerCase();
+            let list = allUsers;
+            if (q) {
+                list = allUsers.filter(u => {
+                    const name = String(userName(u)).toLowerCase();
+                    const id = String(userId(u)).toLowerCase();
+                    return name.includes(q) || id.includes(q);
+                });
+            }
+            const shown = list.slice(0, 50);
+            if (!shown.length) {
+                dd.innerHTML = `<div class="user-empty">لا توجد نتائج مطابقة</div>`;
+            } else {
+                dd.innerHTML = shown.map(u => `
+                    <div class="user-item" onclick='selectUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>
+                        <span class="user-name">${escapeHtml(String(userName(u)))}</span>
+                        <span class="user-id">${escapeHtml(String(userId(u)))}</span>
+                    </div>
+                `).join("");
+                if (list.length > 50) {
+                    dd.innerHTML += `<div class="user-empty">… و ${list.length - 50} نتيجة أخرى (ضيّق البحث)</div>`;
+                }
+            }
+            dd.classList.remove("hidden");
+        }
+
+        function selectUser(u, updateInput = true) {
+            selectedUser = u;
+            document.getElementById("bound_user_id").value = userId(u);
+            if (updateInput) {
+                document.getElementById("user-search").value = userName(u);
+            }
+            const hint = document.getElementById("user-selected-hint");
+            hint.textContent = `✅ مرتبط بـ: ${userName(u)} (ID: ${userId(u)})`;
+            hint.style.color = "var(--success)";
+            document.getElementById("user-dropdown").classList.add("hidden");
+        }
+
+        function clearUser() {
+            selectedUser = null;
+            document.getElementById("bound_user_id").value = "";
+            document.getElementById("user-search").value = "";
+            const hint = document.getElementById("user-selected-hint");
+            hint.textContent = "";
+            document.getElementById("user-dropdown").classList.add("hidden");
+        }
+
+        function bindUserPicker() {
+            const input = document.getElementById("user-search");
+            const dd = document.getElementById("user-dropdown");
+            input.addEventListener("input", () => showUserDropdown(input.value));
+            input.addEventListener("focus", () => showUserDropdown(input.value));
+            document.addEventListener("click", (e) => {
+                if (!e.target.closest(".user-picker")) dd.classList.add("hidden");
+            });
+            input.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const first = dd.querySelector(".user-item");
+                    if (first && !dd.classList.contains("hidden")) first.click();
+                } else if (e.key === "Escape") {
+                    dd.classList.add("hidden");
+                }
+            });
+        }
+
+        /* ===== الجدول ===== */
         function renderTable(data) {
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
@@ -194,13 +362,16 @@
                     s.is_lifetime ? '<span class="badge lifetime">مدى الحياة</span>' : ''
                 ].join("");
 
+                const userObj = allUsers.find(u => String(userId(u)) === String(s.bound_user_id));
+                const userNameDisplay = userObj ? userName(userObj) : (s.bound_user_id || "-");
+
                 return `
                 <tr>
                     <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
                     <td data-label="الباقة">${escapeHtml(s.plan_label || "-")}${planBadges}</td>
                     <td data-label="المدة (د)">${s.duration_minutes ?? "-"}</td>
                     <td data-label="الحصة">${quota}</td>
-                    <td data-label="المستخدم المرتبط">${escapeHtml(s.bound_user_id || "-")}</td>
+                    <td data-label="المستخدم المرتبط">${escapeHtml(String(userNameDisplay))}</td>
                     <td data-label="IP">${escapeHtml(s.bound_ip || "-")}</td>
                     <td data-label="الانتهاء">${s.is_lifetime ? "∞" : fmtEpoch(s.expires_at)}</td>
                     <td data-label="الحالة">${statusBadge(s)}</td>
@@ -211,13 +382,6 @@
                     </td>
                 </tr>`;
             }).join("");
-        }
-
-        function escapeHtml(str) {
-            if (str == null) return "";
-            return String(str)
-                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
 
         async function loadSubs() {
@@ -251,9 +415,14 @@
             const originalCode = document.getElementById("sub-code-hidden").value;
             const isEdit = !!originalCode;
 
+            const codeValue = document.getElementById("code").value.trim().toUpperCase();
+            if (!codeValue) { alert("❌ يرجى توليد كود أولاً"); return; }
+            const planValue = document.getElementById("plan_label").value;
+            if (!planValue) { alert("❌ يرجى اختيار الباقة"); return; }
+
             const body = {
-                code: document.getElementById("code").value.trim().toUpperCase(),
-                plan_label: document.getElementById("plan_label").value.trim(),
+                code: codeValue,
+                plan_label: planValue,
                 is_subscribed: document.getElementById("is_subscribed").checked,
                 is_active: document.getElementById("is_active").checked,
                 is_trial: document.getElementById("is_trial").checked,
@@ -261,8 +430,8 @@
                 duration_minutes: parseInt(document.getElementById("duration_minutes").value, 10) || 0,
                 max_contacts: document.getElementById("max_contacts").value
                     ? parseInt(document.getElementById("max_contacts").value, 10) : null,
-                used_contacts: parseInt(document.getElementById("used_contacts").value, 10) || 0,
-                bound_user_id: document.getElementById("bound_user_id").value.trim() || null,
+                used_contacts: 0,
+                bound_user_id: document.getElementById("bound_user_id").value || null,
                 bound_ip: document.getElementById("bound_ip").value.trim() || null,
                 expires_at: document.getElementById("expires_at").value
                     ? parseInt(document.getElementById("expires_at").value, 10) : null,
@@ -289,10 +458,8 @@
             document.getElementById("sub-code-hidden").value = s.code;
             document.getElementById("code").value = s.code;
             document.getElementById("plan_label").value = s.plan_label || "";
-            document.getElementById("duration_minutes").value = s.duration_minutes ?? 43200;
+            document.getElementById("duration_minutes").value = String(s.duration_minutes ?? 43200);
             document.getElementById("max_contacts").value = s.max_contacts ?? "";
-            document.getElementById("used_contacts").value = s.used_contacts ?? 0;
-            document.getElementById("bound_user_id").value = s.bound_user_id || "";
             document.getElementById("bound_ip").value = s.bound_ip || "";
             document.getElementById("expires_at").value = epochToInput(s.expires_at);
             document.getElementById("is_subscribed").checked = !!s.is_subscribed;
@@ -300,6 +467,22 @@
             document.getElementById("is_trial").checked = !!s.is_trial;
             document.getElementById("is_lifetime").checked = !!s.is_lifetime;
             document.getElementById("notes").value = s.notes || "";
+
+            if (s.bound_user_id) {
+                const u = allUsers.find(x => String(userId(x)) === String(s.bound_user_id));
+                if (u) {
+                    selectUser(u);
+                } else {
+                    document.getElementById("bound_user_id").value = s.bound_user_id;
+                    document.getElementById("user-search").value = s.bound_user_id;
+                    const hint = document.getElementById("user-selected-hint");
+                    hint.textContent = `⚠️ مستخدم غير موجود في القائمة (ID: ${s.bound_user_id})`;
+                    hint.style.color = "var(--warning)";
+                }
+            } else {
+                clearUser();
+            }
+
             document.getElementById("form-title").textContent = "✏️ تعديل الكود: " + s.code;
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
@@ -316,14 +499,20 @@
             document.getElementById("sub-form").reset();
             document.getElementById("sub-code-hidden").value = "";
             document.getElementById("code").value = "";
-            document.getElementById("plan_label").value = "اشتراك مفعل";
-            document.getElementById("duration_minutes").value = 43200;
-            document.getElementById("used_contacts").value = 0;
+            document.getElementById("plan_label").value = "";
+            document.getElementById("duration_minutes").value = "43200";
+            document.getElementById("max_contacts").value = "";
             document.getElementById("is_subscribed").checked = true;
             document.getElementById("is_active").checked = true;
             document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك جديد";
+            clearUser();
+            generateCode();
         }
 
+        /* ===== التهيئة ===== */
+        bindUserPicker();
+        generateCode();
+        loadUsers();
         loadSubs();
     </script>
 </body>
