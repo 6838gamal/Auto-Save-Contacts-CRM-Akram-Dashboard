@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy import text
 from typing import List
+import secrets
+import string
 
 from . import schemas, crud
 from .database import get_db, init_db, check_db_connection
-from .routers import mobile_api                                    # ✨ سطر 1 — جديد
+from .routers import mobile_api
 
 
 @asynccontextmanager
@@ -23,7 +25,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="لوحة إدارة أكواد الاشتراك", lifespan=lifespan)
 
-app.include_router(mobile_api.router)                              # ✨ سطر 2 — جديد
+app.include_router(mobile_api.router)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -77,8 +79,18 @@ def index(request: Request):
 # ============================================================
 
 @app.get("/api/subscriptions", response_model=List[schemas.SubscriptionResponse])
-def list_subscriptions(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_subscriptions(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
+    """قائمة كل الاشتراكات — الحد الافتراضي رُفع إلى 1000 لعرض الجدول كاملاً."""
     return crud.get_subscriptions(db, skip=skip, limit=limit)
+
+
+# ⚠️ نقطة by-user توضع قبل {code} دفاعياً لتجنّب أي تعارض في المطابقة
+@app.get("/api/subscriptions/by-user/{user_id}", response_model=schemas.SubscriptionResponse)
+def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
+    sub = crud.get_subscription_by_user(db, user_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="لا يوجد اشتراك نشط لهذا المستخدم")
+    return sub
 
 
 @app.get("/api/subscriptions/{code}", response_model=schemas.SubscriptionResponse)
@@ -116,12 +128,47 @@ def delete_subscription(code: str, db: Session = Depends(get_db)):
     return {"message": f"تم حذف الكود '{code}' بنجاح"}
 
 
-# --- نقطة إضافية: جلب اشتراك نشط لمستخدم ---
-@app.get("/api/subscriptions/by-user/{user_id}", response_model=schemas.SubscriptionResponse)
-def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
-    sub = crud.get_subscription_by_user(db, user_id)
+# ============================================================
+# ✨ نقطة إعادة توليد كود اشتراك (تستبدل القديم مع الحفاظ على كل الحقول)
+# ============================================================
+def _generate_unique_code(db: Session, max_attempts: int = 20) -> str:
+    """يولّد كوداً فريداً بصيغة XXXX-XXXX-XXXX."""
+    alphabet = string.ascii_uppercase.replace("I", "").replace("O", "") + "23456789"
+    for _ in range(max_attempts):
+        code = "-".join(
+            "".join(secrets.choice(alphabet) for _ in range(4)) for _ in range(3)
+        )
+        if not crud.get_subscription(db, code):
+            return code
+    raise HTTPException(status_code=500, detail="تعذّر توليد كود فريد، حاول مرة أخرى")
+
+
+@app.post("/api/subscriptions/{code}/regenerate", response_model=schemas.SubscriptionResponse)
+def regenerate_subscription_code(code: str, db: Session = Depends(get_db)):
+    """يولّد كوداً جديداً ويستبدل القديم في نفس السجل (يحافظ على الربط والحقول)."""
+    sub = crud.get_subscription(db, code)
     if not sub:
-        raise HTTPException(status_code=404, detail="لا يوجد اشتراك نشط لهذا المستخدم")
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
+
+    new_code = _generate_unique_code(db)
+
+    updated = crud.rename_subscription_code(db, code, new_code)
+    if not updated:
+        raise HTTPException(status_code=500, detail="فشل تحديث الكود")
+    return updated
+
+
+# ============================================================
+# ✨ نقطة تفعيل / إيقاف سريعة
+# ============================================================
+@app.patch("/api/subscriptions/{code}/toggle", response_model=schemas.SubscriptionResponse)
+def toggle_subscription(code: str, db: Session = Depends(get_db)):
+    sub = crud.get_subscription(db, code)
+    if not sub:
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
+    sub.is_active = not sub.is_active
+    db.commit()
+    db.refresh(sub)
     return sub
 
 
@@ -132,11 +179,13 @@ def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
 @app.get("/api/users")
 def list_devices(
     skip: int = 0,
-    limit: int = 5000,
-    q: str = Query(None, description="بحث بالمعرف/IP/اسم الجهاز"),
+    limit: int = 500,
+    q: str = Query(None, description="بحث بالمعرف/IP/اسم الجهاز/الموديل/UUID"),
     db: Session = Depends(get_db),
 ):
-    """قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات."""
+    """قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات.
+    عند وجود q يتم البحث من الخادم (أسرع بكثير من تحميل كل الصفوف).
+    """
     if q:
         return crud.search_devices(db, q, limit=limit)
     return crud.get_devices(db, skip=skip, limit=limit)
@@ -177,7 +226,6 @@ def stats(db: Session = Depends(get_db)):
         )
         .count()
     )
-    # ✨ جديد: عدد الأجهزة المسجّلة
     devices = (
         db.query(crud.models.Subscription)
         .filter(crud.models.Subscription.install_uuid.isnot(None))
@@ -187,5 +235,5 @@ def stats(db: Session = Depends(get_db)):
         "total_subscriptions": total,
         "active_subscriptions": active,
         "bound_subscriptions": bound,
-        "registered_devices": devices,                             # ✨ جديد
+        "registered_devices": devices,
     }
