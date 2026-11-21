@@ -2,9 +2,75 @@
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
     <title>لوحة إدارة أكواد الاشتراك السنوي</title>
     <link rel="stylesheet" href="/static/style.css">
+    <style>
+        /* ===== تحسينات للجوال الصغير ===== */
+        @media (max-width: 480px) {
+            body { font-size: 13px; }
+            h1 { font-size: 1.1rem !important; }
+            .container { padding: 8px !important; }
+            .form-card { padding: 12px !important; }
+            .form-card h2 { font-size: 1rem !important; }
+            input, textarea, select, button { font-size: 14px !important; }
+            .mobile-topbar { padding: 8px 10px !important; }
+            .mobile-title { font-size: 0.85rem !important; }
+            .fab { width: 52px !important; height: 52px !important; font-size: 22px !important; }
+            /* جدول يتحول لبطاقات */
+            .table-wrap { padding: 0 !important; }
+            table, thead, tbody, th, td, tr { display: block !important; width: 100% !important; }
+            thead { display: none !important; }
+            tbody tr {
+                background: var(--card-bg, #fff);
+                border: 1px solid var(--border, #ddd);
+                border-radius: 10px;
+                margin-bottom: 10px;
+                padding: 10px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+            }
+            tbody td {
+                display: flex !important;
+                justify-content: space-between;
+                align-items: center;
+                padding: 6px 4px !important;
+                border: none !important;
+                border-bottom: 1px dashed #eee !important;
+                font-size: 12.5px !important;
+                text-align: left !important;
+                gap: 8px;
+            }
+            tbody td:last-child { border-bottom: none !important; }
+            tbody td::before {
+                content: attr(data-label);
+                font-weight: 700;
+                color: #555;
+                flex-shrink: 0;
+                font-size: 12px;
+                text-align: right;
+                min-width: 85px;
+            }
+            tbody td > * { text-align: left; }
+            .row-actions { flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+            .row-actions button {
+                min-width: 38px; height: 34px; padding: 0 8px; font-size: 15px !important;
+            }
+        }
+        /* شريط أزرار الصف */
+        .row-actions { display: flex; gap: 5px; flex-wrap: wrap; }
+        .row-actions button {
+            border: none; border-radius: 7px; cursor: pointer;
+            background: #eef1f5; padding: 6px 9px; font-size: 14px;
+            transition: transform .1s, background .15s;
+        }
+        .row-actions button:hover { background: #dfe4ea; transform: translateY(-1px); }
+        .row-actions .btn-danger { background: #ffe3e3; }
+        .row-actions .btn-danger:hover { background: #ffcccc; }
+        .row-actions .btn-activate { background: #e3f9e5; }
+        .row-actions .btn-activate:hover { background: #c8f2cc; }
+        .row-actions .btn-regen { background: #fff4d6; }
+        .row-actions .btn-regen:hover { background: #ffe9a8; }
+    </style>
 </head>
 <body>
 
@@ -23,13 +89,20 @@
     <div class="container">
         <h1>📋 لوحة إدارة أكواد الاشتراك السنوي</h1>
 
+        <!-- ===== شريط بحث سريع ===== -->
+        <div class="search-bar" style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+            <input type="text" id="table-search" placeholder="🔍 بحث في الجدول (كود، جهاز، IP، موديل...)"
+                   style="flex:1;min-width:180px;padding:10px;border-radius:8px;border:1px solid #ccc;"
+                   oninput="filterTable(this.value)">
+            <button type="button" onclick="loadSubs()" style="padding:10px 14px;border-radius:8px;border:none;background:#eef1f5;cursor:pointer;">🔄 تحديث</button>
+        </div>
+
         <!-- نموذج إضافة/تعديل -->
         <div class="form-card" id="form-card">
             <h2 id="form-title">➕ إضافة كود اشتراك سنوي جديد</h2>
             <form id="sub-form">
                 <input type="hidden" id="sub-code-hidden">
 
-                <!-- الكود: للعرض فقط + زر توليد -->
                 <div>
                     <label for="code">كود الاشتراك (يُولَّد تلقائياً)</label>
                     <div class="code-input-group">
@@ -38,7 +111,6 @@
                     </div>
                 </div>
 
-                <!-- الجهاز المرتبط: بحث + اختيار من قاعدة البيانات -->
                 <div class="user-picker" style="grid-column:1/-1;">
                     <label for="user-search">الجهاز المرتبط (يُجلب من قاعدة البيانات)</label>
                     <div class="user-picker-box">
@@ -53,65 +125,26 @@
                     <small id="user-selected-hint" class="user-hint"></small>
                 </div>
 
-                <!-- بطاقة تفاصيل الجهاز (موسّعة) -->
                 <div id="user-details-card" class="user-details-card hidden" style="grid-column:1/-1;">
-                    <div class="detail-item">
-                        <span class="detail-label">🆔 معرّف الجهاز</span>
-                        <span class="detail-value mono" id="detail-id">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">📱 الموديل</span>
-                        <span class="detail-value" id="detail-model">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">🤖 نظام التشغيل</span>
-                        <span class="detail-value" id="detail-os">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">🌐 IP عام</span>
-                        <span class="detail-value mono" id="detail-ip">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">🏠 IP محلي</span>
-                        <span class="detail-value mono" id="detail-local-ip">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">📶 نوع الشبكة</span>
-                        <span class="detail-value" id="detail-network">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">📍 الموقع</span>
-                        <span class="detail-value" id="detail-location">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">🔗 الحصة</span>
-                        <span class="detail-value" id="detail-quota">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">📅 أول ظهور</span>
-                        <span class="detail-value" id="detail-created">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">👁️ آخر ظهور</span>
-                        <span class="detail-value" id="detail-last-seen">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">🔧 UUID التثبيت</span>
-                        <span class="detail-value mono" id="detail-install-uuid">-</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">📦 إصدار التطبيق</span>
-                        <span class="detail-value" id="detail-app-version">-</span>
-                    </div>
+                    <div class="detail-item"><span class="detail-label">🆔 معرّف الجهاز</span><span class="detail-value mono" id="detail-id">-</span></div>
+                    <div class="detail-item"><span class="detail-label">📱 الموديل</span><span class="detail-value" id="detail-model">-</span></div>
+                    <div class="detail-item"><span class="detail-label">🤖 نظام التشغيل</span><span class="detail-value" id="detail-os">-</span></div>
+                    <div class="detail-item"><span class="detail-label">🌐 IP عام</span><span class="detail-value mono" id="detail-ip">-</span></div>
+                    <div class="detail-item"><span class="detail-label">🏠 IP محلي</span><span class="detail-value mono" id="detail-local-ip">-</span></div>
+                    <div class="detail-item"><span class="detail-label">📶 نوع الشبكة</span><span class="detail-value" id="detail-network">-</span></div>
+                    <div class="detail-item"><span class="detail-label">📍 الموقع</span><span class="detail-value" id="detail-location">-</span></div>
+                    <div class="detail-item"><span class="detail-label">🔗 الحصة</span><span class="detail-value" id="detail-quota">-</span></div>
+                    <div class="detail-item"><span class="detail-label">📅 أول ظهور</span><span class="detail-value" id="detail-created">-</span></div>
+                    <div class="detail-item"><span class="detail-label">👁️ آخر ظهور</span><span class="detail-value" id="detail-last-seen">-</span></div>
+                    <div class="detail-item"><span class="detail-label">🔧 UUID التثبيت</span><span class="detail-value mono" id="detail-install-uuid">-</span></div>
+                    <div class="detail-item"><span class="detail-label">📦 إصدار التطبيق</span><span class="detail-value" id="detail-app-version">-</span></div>
                 </div>
 
-                <!-- IP المرتبط (يُملأ تلقائياً من بيانات الجهاز) -->
                 <div>
                     <label for="bound_ip">عنوان IP المرتبط</label>
                     <input type="text" id="bound_ip" placeholder="يُملأ تلقائياً من بيانات الجهاز">
                 </div>
 
-                <!-- تاريخ الانتهاء -->
                 <div>
                     <label for="expires_at">تاريخ الانتهاء (epoch ms)</label>
                     <input type="number" id="expires_at" step="1" placeholder="اتركه فارغاً للتفعيل التلقائي">
@@ -134,7 +167,7 @@
             </form>
         </div>
 
-        <!-- جدول الاشتراكات -->
+        <!-- ===== جدول الاشتراكات ===== -->
         <div class="table-wrap">
             <table>
                 <thead>
@@ -142,10 +175,16 @@
                         <th>الكود</th>
                         <th>الجهاز المرتبط</th>
                         <th>الموديل</th>
-                        <th>IP</th>
+                        <th>نظام التشغيل</th>
+                        <th>IP عام</th>
+                        <th>IP محلي</th>
                         <th>الشبكة</th>
+                        <th>الموقع</th>
                         <th>الحصة</th>
+                        <th>أول ظهور</th>
                         <th>آخر ظهور</th>
+                        <th>UUID</th>
+                        <th>إصدار التطبيق</th>
                         <th>الانتهاء</th>
                         <th>الحالة</th>
                         <th>إجراءات</th>
@@ -156,23 +195,21 @@
         </div>
     </div>
 
-    <!-- زر عائم للجوال -->
     <button class="fab" onclick="scrollToForm()" title="إضافة كود">➕</button>
 
     <script>
         const API = "/api/subscriptions";
-        const USERS_API = "/api/users";   // كل الصفوف من subscription_codes
+        const USERS_API = "/api/users";
         let retryTimer = null;
 
-        /* ===== ثوابت الاشتراك السنوي ===== */
         const FIXED_PLAN_LABEL = "اشتراك سنوي";
-        const FIXED_DURATION_MINUTES = 525600; // سنة واحدة
+        const FIXED_DURATION_MINUTES = 525600;
 
-        /* ===== كاش الأجهزة/الصفوف ===== */
         let allUsers = [];
         let selectedUser = null;
+        let allSubs = [];   // نسخة كاملة للفلترة
 
-        /* ===== التمرير للنموذج ===== */
+        /* ===== أدوات ===== */
         function scrollToForm() {
             const form = document.getElementById("form-card");
             form.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -182,41 +219,36 @@
             }, 400);
         }
 
-        /* ===== توليد كود اشتراك ===== */
         function generateCode() {
             const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
             const groups = [4, 4, 4];
             const code = groups.map(len =>
                 Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("")
             ).join("-");
-            document.getElementById("code").value = code;
+            return code;
         }
 
-        /* ===== أدوات مساعدة ===== */
+        function setGeneratedCode() {
+            document.getElementById("code").value = generateCode();
+        }
+
         function scheduleRetry() {
             if (retryTimer) return;
             retryTimer = setTimeout(() => { retryTimer = null; loadSubs(); }, 10000);
         }
-        function cancelRetry() {
-            if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
-        }
+        function cancelRetry() { if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; } }
         function showDbAlert(msg) {
             document.getElementById("db-alert-msg").textContent = msg;
             document.getElementById("db-alert").classList.remove("hidden");
         }
-        function hideDbAlert() {
-            document.getElementById("db-alert").classList.add("hidden");
-        }
+        function hideDbAlert() { document.getElementById("db-alert").classList.add("hidden"); }
 
         async function safeFetch(url, options = {}) {
             try {
                 const res = await fetch(url, options);
                 if (!res.ok) {
                     let detail = `HTTP ${res.status}`;
-                    try {
-                        const data = await res.json();
-                        detail = data.detail || data.message || JSON.stringify(data);
-                    } catch { /* رد ليس JSON */ }
+                    try { const data = await res.json(); detail = data.detail || data.message || JSON.stringify(data); } catch {}
                     alert(`❌ ${detail}`);
                     return null;
                 }
@@ -231,53 +263,41 @@
             if (!ms) return "-";
             const d = new Date(Number(ms));
             if (isNaN(d.getTime())) return "-";
-            return d.toLocaleDateString("ar-EG") + " " +
-                   d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+            return d.toLocaleDateString("ar-EG") + " " + d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
         }
         function fmtDateStr(s) {
             if (!s) return "-";
             try {
                 const d = new Date(s);
                 if (isNaN(d.getTime())) return "-";
-                return d.toLocaleDateString("ar-EG") + " " +
-                       d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+                return d.toLocaleDateString("ar-EG") + " " + d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
             } catch { return "-"; }
         }
         function epochToInput(ms) { return ms ? String(ms) : ""; }
 
         function statusBadge(s) {
             if (!s.is_active) return `<span class="status inactive">متوقف</span>`;
-            if (s.expires_at && Date.now() >= Number(s.expires_at)) {
-                return `<span class="status expired">منتهي</span>`;
-            }
+            if (s.expires_at && Date.now() >= Number(s.expires_at)) return `<span class="status expired">منتهي</span>`;
             if (s.is_subscribed) return `<span class="status active">نشط</span>`;
             return `<span class="status cancelled">غير مشترك</span>`;
         }
 
         function escapeHtml(str) {
             if (str == null) return "";
-            return String(str)
-                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+            return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
                 .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
+        function safeAttr(str) {
+            // تشفير JSON لاستخدامه داخل onclick
+            return escapeHtml(JSON.stringify(str).slice(1, -1));
+        }
 
-        /* ===== استخراج معرف/اسم/IP/موديل من صف subscription_codes ===== */
-        function userId(u) {
-            return u.bound_user_id ?? u.user_id ?? u.code ?? "";
-        }
-        function userName(u) {
-            return u.bound_user_id ?? u.name ?? u.code ?? "";
-        }
-        function userIp(u) {
-            // الأولوية: public_ip (من التطبيق) ثم bound_ip (من لوحة التحكم)
-            return u.public_ip ?? u.bound_ip ?? u.ip ?? "";
-        }
-        function userModel(u) {
-            return u.device_model ?? "";
-        }
-        function userNetwork(u) {
-            return u.network_type ?? "";
-        }
+        /* ===== حقول المستخدم ===== */
+        function userId(u) { return u.bound_user_id ?? u.user_id ?? u.code ?? ""; }
+        function userName(u) { return u.bound_user_id ?? u.name ?? u.code ?? ""; }
+        function userIp(u) { return u.public_ip ?? u.bound_ip ?? u.ip ?? ""; }
+        function userModel(u) { return u.device_model ?? ""; }
+        function userNetwork(u) { return u.network_type ?? ""; }
         function userQuota(u) {
             const used = u.used_contacts ?? u.saved_contacts_count ?? 0;
             const max = u.max_contacts;
@@ -296,8 +316,8 @@
                 }
             } catch (err) {
                 console.warn("تعذّر جلب الأجهزة:", err.message);
-                const dd = document.getElementById("user-dropdown");
-                dd.innerHTML = `<div class="user-empty">⚠️ تعذّر جلب الأجهزة: ${err.message}</div>`;
+                document.getElementById("user-dropdown").innerHTML =
+                    `<div class="user-empty">⚠️ تعذّر جلب الأجهزة: ${err.message}</div>`;
             }
         }
 
@@ -312,8 +332,7 @@
                     const code = String(u.code ?? "").toLowerCase();
                     const model = String(userModel(u)).toLowerCase();
                     const uuid = String(u.install_uuid ?? "").toLowerCase();
-                    return id.includes(q) || ip.includes(q) || code.includes(q)
-                        || model.includes(q) || uuid.includes(q);
+                    return id.includes(q) || ip.includes(q) || code.includes(q) || model.includes(q) || uuid.includes(q);
                 });
             }
             const shown = list.slice(0, 50);
@@ -321,42 +340,26 @@
                 dd.innerHTML = `<div class="user-empty">لا توجد نتائج مطابقة — استخدم ➕ لإضافة جهاز يدوياً</div>`;
             } else {
                 dd.innerHTML = shown.map(u => {
-                    const id = userId(u);
-                    const ip = userIp(u);
-                    const model = userModel(u);
+                    const id = userId(u), ip = userIp(u), model = userModel(u);
                     const ipHtml = ip ? `<span class="user-ip">🌐 ${escapeHtml(String(ip))}</span>` : "";
                     const modelHtml = model ? `<span class="user-ip">📱 ${escapeHtml(String(model))}</span>` : "";
-                    return `
-                    <div class="user-item" onclick='selectUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>
-                        <div class="user-info">
-                            <span class="user-name mono">${escapeHtml(String(id))}</span>
-                        </div>
-                        ${modelHtml}
-                        ${ipHtml}
+                    const encoded = safeAttr(u);
+                    return `<div class="user-item" onclick='selectUser(JSON.parse(decodeURIComponent("${encoded}")))'>
+                        <div class="user-info"><span class="user-name mono">${escapeHtml(String(id))}</span></div>
+                        ${modelHtml}${ipHtml}
                     </div>`;
                 }).join("");
-                if (list.length > 50) {
-                    dd.innerHTML += `<div class="user-empty">… و ${list.length - 50} نتيجة أخرى (ضيّق البحث)</div>`;
-                }
+                if (list.length > 50) dd.innerHTML += `<div class="user-empty">… و ${list.length - 50} نتيجة أخرى (ضيّق البحث)</div>`;
             }
             dd.classList.remove("hidden");
         }
 
-        /* ===== اختيار جهاز: ملء تلقائي لكل البيانات ===== */
         function selectUser(u, updateInput = true) {
             selectedUser = u;
             document.getElementById("bound_user_id").value = userId(u);
-            if (updateInput) {
-                document.getElementById("user-search").value = userName(u);
-            }
-
-            // ✅ ملء IP تلقائياً
-            const ip = userIp(u);
-            document.getElementById("bound_ip").value = ip || "";
-
-            // ✅ إظهار بطاقة تفاصيل الجهاز
+            if (updateInput) document.getElementById("user-search").value = userName(u);
+            document.getElementById("bound_ip").value = userIp(u) || "";
             showUserDetails(u);
-
             const hint = document.getElementById("user-selected-hint");
             hint.textContent = `✅ مرتبط بالجهاز: ${userId(u)}`;
             hint.style.color = "var(--success)";
@@ -380,36 +383,27 @@
             card.classList.remove("hidden");
         }
 
-        function hideUserDetails() {
-            document.getElementById("user-details-card").classList.add("hidden");
-        }
+        function hideUserDetails() { document.getElementById("user-details-card").classList.add("hidden"); }
 
         function clearUser() {
             selectedUser = null;
             document.getElementById("bound_user_id").value = "";
             document.getElementById("user-search").value = "";
             document.getElementById("bound_ip").value = "";
-            const hint = document.getElementById("user-selected-hint");
-            hint.textContent = "";
+            document.getElementById("user-selected-hint").textContent = "";
             document.getElementById("user-dropdown").classList.add("hidden");
             hideUserDetails();
         }
 
-        /* ===== إضافة جهاز يدوياً ===== */
         function addManualDevice() {
             const id = prompt("أدخل معرّف الجهاز (bound_user_id):");
             if (!id || !id.trim()) return;
             const trimmed = id.trim();
             let u = allUsers.find(x => String(userId(x)) === trimmed);
-            if (!u) {
-                u = { bound_user_id: trimmed, bound_ip: null, used_contacts: 0, max_contacts: null };
-                allUsers.push(u);
-            }
+            if (!u) { u = { bound_user_id: trimmed, bound_ip: null, used_contacts: 0, max_contacts: null }; allUsers.push(u); }
             selectUser(u);
             const ip = prompt("أدخل عنوان IP للجهاز (اختياري):", document.getElementById("bound_ip").value || "");
-            if (ip !== null) {
-                document.getElementById("bound_ip").value = ip.trim();
-            }
+            if (ip !== null) document.getElementById("bound_ip").value = ip.trim();
         }
 
         function bindUserPicker() {
@@ -417,49 +411,65 @@
             const dd = document.getElementById("user-dropdown");
             input.addEventListener("input", () => showUserDropdown(input.value));
             input.addEventListener("focus", () => showUserDropdown(input.value));
-            document.addEventListener("click", (e) => {
-                if (!e.target.closest(".user-picker")) dd.classList.add("hidden");
-            });
+            document.addEventListener("click", (e) => { if (!e.target.closest(".user-picker")) dd.classList.add("hidden"); });
             input.addEventListener("keydown", (e) => {
                 if (e.key === "Enter") {
                     e.preventDefault();
                     const first = dd.querySelector(".user-item");
                     if (first && !dd.classList.contains("hidden")) first.click();
-                } else if (e.key === "Escape") {
-                    dd.classList.add("hidden");
-                }
+                } else if (e.key === "Escape") dd.classList.add("hidden");
             });
         }
 
-        /* ===== الجدول ===== */
+        /* ===== الجدول: عرض كل الحقول ===== */
         function renderTable(data) {
+            allSubs = data;
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="16" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
-                const deviceDisplay = s.bound_user_id || "-";
-                const ipDisplay = userIp(s) || "-";
-                const modelDisplay = s.device_model || "-";
-                const networkDisplay = s.network_type || "-";
+                const code = s.code;
+                const deviceId = s.bound_user_id || "-";
+                const model = s.device_model || "-";
+                const os = s.os_version || "-";
+                const publicIp = s.public_ip || "-";
+                const localIp = s.local_ip || "-";
+                const network = s.network_type || "-";
+                const location = s.location_info || "-";
                 const quota = userQuota(s);
+                const firstSeen = s.first_seen ? fmtDateStr(s.first_seen) : "-";
                 const lastSeen = s.last_seen ? fmtDateStr(s.last_seen) : "-";
+                const installUuid = s.install_uuid || "-";
+                const appVer = s.app_version || "-";
+                const expires = s.is_lifetime ? "∞" : fmtEpoch(s.expires_at);
 
+                const encoded = safeAttr(s);
                 return `
                 <tr>
-                    <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
-                    <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(String(deviceDisplay))}</td>
-                    <td data-label="الموديل">${escapeHtml(String(modelDisplay))}</td>
-                    <td data-label="IP" class="mono">${escapeHtml(String(ipDisplay))}</td>
-                    <td data-label="الشبكة">${escapeHtml(String(networkDisplay))}</td>
+                    <td data-label="الكود" class="code-cell mono">${escapeHtml(code)}</td>
+                    <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(String(deviceId))}</td>
+                    <td data-label="الموديل">${escapeHtml(String(model))}</td>
+                    <td data-label="نظام التشغيل">${escapeHtml(String(os))}</td>
+                    <td data-label="IP عام" class="mono">${escapeHtml(String(publicIp))}</td>
+                    <td data-label="IP محلي" class="mono">${escapeHtml(String(localIp))}</td>
+                    <td data-label="الشبكة">${escapeHtml(String(network))}</td>
+                    <td data-label="الموقع">${escapeHtml(String(location))}</td>
                     <td data-label="الحصة">${quota}</td>
+                    <td data-label="أول ظهور">${firstSeen}</td>
                     <td data-label="آخر ظهور">${lastSeen}</td>
-                    <td data-label="الانتهاء">${s.is_lifetime ? "∞" : fmtEpoch(s.expires_at)}</td>
+                    <td data-label="UUID" class="mono" style="font-size:11px;">${escapeHtml(String(installUuid))}</td>
+                    <td data-label="إصدار التطبيق">${escapeHtml(String(appVer))}</td>
+                    <td data-label="الانتهاء">${expires}</td>
                     <td data-label="الحالة">${statusBadge(s)}</td>
                     <td data-label="إجراءات">
-                        <button onclick='editSub(${JSON.stringify(s).replace(/'/g, "&#39;")})'>✏️</button>
-                        <button class="btn-danger" onclick="deleteSub('${escapeHtml(s.code)}')">🗑️</button>
+                        <div class="row-actions">
+                            <button onclick='editSub(JSON.parse(decodeURIComponent("${encoded}")))' title="تعديل">✏️</button>
+                            <button class="btn-activate" onclick="toggleActive('${escapeHtml(code)}')" title="${s.is_active ? 'إيقاف' : 'تفعيل'}">${s.is_active ? '🔴' : '🟢'}</button>
+                            <button class="btn-regen" onclick="regenCode('${escapeHtml(code)}')" title="توليد كود جديد">🎲</button>
+                            <button class="btn-danger" onclick="deleteSub('${escapeHtml(code)}')" title="حذف">🗑️</button>
+                        </div>
                     </td>
                 </tr>`;
             }).join("");
@@ -470,10 +480,7 @@
                 const res = await fetch(API);
                 if (!res.ok) {
                     let detail = "خطأ غير معروف";
-                    try {
-                        const errData = await res.json();
-                        detail = errData.detail || errData.message || JSON.stringify(errData);
-                    } catch { /* رد ليس JSON */ }
+                    try { const errData = await res.json(); detail = errData.detail || errData.message || JSON.stringify(errData); } catch {}
                     showDbAlert(`تعذّر تحميل الأكواد: ${detail}`);
                     document.getElementById("subs-table").innerHTML = "";
                     scheduleRetry();
@@ -490,12 +497,58 @@
             }
         }
 
+        /* ===== فلترة الجدول ===== */
+        function filterTable(q) {
+            const query = q.trim().toLowerCase();
+            if (!query) { renderTable(allSubs); return; }
+            const filtered = allSubs.filter(s => {
+                return String(s.code ?? "").toLowerCase().includes(query)
+                    || String(s.bound_user_id ?? "").toLowerCase().includes(query)
+                    || String(s.bound_ip ?? "").toLowerCase().includes(query)
+                    || String(s.public_ip ?? "").toLowerCase().includes(query)
+                    || String(s.device_model ?? "").toLowerCase().includes(query)
+                    || String(s.install_uuid ?? "").toLowerCase().includes(query);
+            });
+            renderTable(filtered);
+        }
+
+        /* ===== تفعيل / إيقاف سريع ===== */
+        async function toggleActive(code) {
+            const sub = allSubs.find(s => s.code === code);
+            if (!sub) return;
+            const body = { is_active: !sub.is_active };
+            const result = await safeFetch(`${API}/${encodeURIComponent(code)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (result) loadSubs();
+        }
+
+        /* ===== إعادة توليد كود ===== */
+        async function regenCode(oldCode) {
+            if (!confirm(`هل تريد توليد كود جديد بدلاً من "${oldCode}"؟`)) return;
+            const newCode = generateCode();
+            const sub = allSubs.find(s => s.code === oldCode);
+            if (!sub) return;
+            const body = { ...sub, code: newCode };
+            const result = await safeFetch(API, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            if (result) {
+                await safeFetch(`${API}/${encodeURIComponent(oldCode)}`, { method: "DELETE" });
+                loadSubs();
+                loadUsers();
+            }
+        }
+
         /* ===== إرسال النموذج ===== */
         document.getElementById("sub-form").addEventListener("submit", async (e) => {
             e.preventDefault();
             const originalCode = document.getElementById("sub-code-hidden").value;
             const isEdit = !!originalCode;
-
             const codeValue = document.getElementById("code").value.trim().toUpperCase();
             if (!codeValue) { alert("❌ يرجى توليد كود أولاً"); return; }
 
@@ -511,25 +564,14 @@
                 used_contacts: 0,
                 bound_user_id: document.getElementById("bound_user_id").value || null,
                 bound_ip: document.getElementById("bound_ip").value.trim() || null,
-                expires_at: document.getElementById("expires_at").value
-                    ? parseInt(document.getElementById("expires_at").value, 10) : null,
+                expires_at: document.getElementById("expires_at").value ? parseInt(document.getElementById("expires_at").value, 10) : null,
                 notes: document.getElementById("notes").value.trim(),
             };
 
             const method = isEdit ? "PUT" : "POST";
             const url = isEdit ? `${API}/${encodeURIComponent(originalCode)}` : API;
-
-            const result = await safeFetch(url, {
-                method,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(body),
-            });
-
-            if (result) {
-                resetForm();
-                loadSubs();
-                loadUsers(); // تحديث قائمة الأجهزة بعد الحفظ
-            }
+            const result = await safeFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+            if (result) { resetForm(); loadSubs(); loadUsers(); }
         });
 
         /* ===== تعديل ===== */
@@ -543,49 +585,39 @@
 
             if (s.bound_user_id) {
                 const u = allUsers.find(x => String(userId(x)) === String(s.bound_user_id));
-                if (u) {
-                    selectUser(u);
-                } else {
+                if (u) selectUser(u);
+                else {
                     document.getElementById("bound_user_id").value = s.bound_user_id;
                     document.getElementById("user-search").value = s.bound_user_id;
                     const hint = document.getElementById("user-selected-hint");
                     hint.textContent = `⚠️ جهاز غير موجود في القائمة (ID: ${s.bound_user_id})`;
                     hint.style.color = "var(--warning)";
-                    // نعرض بطاقة تفاصيل من بيانات الصف نفسه
                     showUserDetails(s);
                 }
-            } else {
-                clearUser();
-            }
+            } else clearUser();
 
             document.getElementById("form-title").textContent = "✏️ تعديل الكود: " + s.code;
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        /* ===== حذف ===== */
         async function deleteSub(code) {
             if (!confirm(`هل أنت متأكد من حذف الكود "${code}"؟`)) return;
             const result = await safeFetch(`${API}/${encodeURIComponent(code)}`, { method: "DELETE" });
-            if (result) {
-                loadSubs();
-                loadUsers();
-            }
+            if (result) { loadSubs(); loadUsers(); }
         }
 
-        /* ===== إعادة تعيين ===== */
         function resetForm() {
             document.getElementById("sub-form").reset();
             document.getElementById("sub-code-hidden").value = "";
-            document.getElementById("code").value = "";
             document.getElementById("is_active").checked = true;
             document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك سنوي جديد";
             clearUser();
-            generateCode();
+            setGeneratedCode();
         }
 
         /* ===== التهيئة ===== */
         bindUserPicker();
-        generateCode();
+        setGeneratedCode();
         loadUsers();
         loadSubs();
     </script>
