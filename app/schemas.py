@@ -30,6 +30,29 @@ class SubscriptionBase(BaseModel):
     # ---- ملاحظات ----
     notes: str = ""
 
+    # ═══════════════════════════════════════════════════════
+    #  ✨ جديد: بيانات الجهاز
+    # ═══════════════════════════════════════════════════════
+    device_id: Optional[str] = ""
+    android_id: Optional[str] = None
+    install_uuid: Optional[str] = None
+    public_ip: Optional[str] = None
+    local_ip: Optional[str] = None
+    location_info: Optional[str] = None
+    device_model: Optional[str] = None
+    os_version: Optional[str] = None
+    network_type: Optional[str] = None
+
+    saved_contacts_count: int = 0
+    free_contacts_used: int = 0
+    free_contacts_limit: int = 100
+    free_tier_exhausted: bool = False
+
+    app_version: Optional[str] = "1.0"
+
+    first_seen: Optional[datetime] = None
+    last_seen: Optional[datetime] = None
+
     # ---- طوابع زمنية ----
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -57,7 +80,14 @@ class SubscriptionUpdate(BaseModel):
     expires_at: Optional[int] = None
     notes: Optional[str] = None
 
+    # ✨ جديد: يمكن تحديث بيانات الجهاز من لوحة التحكم أيضاً
+    device_id: Optional[str] = None
+    device_model: Optional[str] = None
+    os_version: Optional[str] = None
+    public_ip: Optional[str] = None
+    notes_device: Optional[str] = None  # للتوضيح فقط، ليس عموداً
+
 
 class SubscriptionResponse(SubscriptionBase):
-    """استجابة القراءة — نفس الحقول (الكود هو المفتاح)"""
+    """استجابة القراءة — كل الحقول بما فيها بيانات الجهاز"""
     pass
