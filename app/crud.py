@@ -8,7 +8,8 @@ from . import models, schemas
 # الاشتراكات (Subscriptions) — CRUD كامل
 # ============================================================
 
-def get_subscriptions(db: Session, skip: int = 0, limit: int = 100):
+def get_subscriptions(db: Session, skip: int = 0, limit: int = 1000):
+    """النسخة القديمة (ORM) — تُبقي للتوافق مع أي كود قديم."""
     return (
         db.query(models.Subscription)
         .order_by(models.Subscription.created_at.desc())
@@ -16,6 +17,22 @@ def get_subscriptions(db: Session, skip: int = 0, limit: int = 100):
         .limit(limit)
         .all()
     )
+
+
+def get_subscriptions_full(db: Session, skip: int = 0, limit: int = 1000):
+    """
+    ✨ النسخة الجديدة: ترجع كل الأعمدة (بما فيها حقول الجهاز) من
+    subscription_codes مباشرة عبر SQL — نفس أسلوب get_devices.
+    تُستخدمها الواجهة الجديدة لعرض 16 عمودًا.
+    """
+    sql = text(f"""
+        SELECT {_DEVICE_COLUMNS_SQL}
+        FROM subscription_codes
+        ORDER BY created_at DESC
+        OFFSET :skip LIMIT :limit
+    """)
+    rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
+    return [_serialize_full_row(r) for r in rows]
 
 
 def get_subscription(db: Session, code: str):
@@ -43,11 +60,14 @@ def create_subscription(db: Session, sub: schemas.SubscriptionCreate):
 
 
 def update_subscription(db: Session, code: str, sub: schemas.SubscriptionUpdate):
+    """
+    تحديث جزئي — يستخدم exclude_unset لتفادي تصفير الحقول غير المرسلة.
+    """
     db_sub = get_subscription(db, code)
     if not db_sub:
         return None
     data = sub.model_dump(exclude_unset=True)
-    data.pop("code", None)
+    data.pop("code", None)  # الكود لا يُعدّل من هنا (استخدم regenerate بدلاً)
     for key, value in data.items():
         setattr(db_sub, key, value)
     db_sub.updated_at = datetime.utcnow()
@@ -76,6 +96,42 @@ def get_subscription_by_user(db: Session, user_id: str):
         .order_by(models.Subscription.updated_at.desc())
         .first()
     )
+
+
+# ============================================================
+# ✨ إعادة توليد كود اشتراك — تغيير المفتاح الأساسي في نفس السجل
+# ============================================================
+
+def rename_subscription_code(db: Session, old_code: str, new_code: str):
+    """
+    يغيّر كود الاشتراك مع الحفاظ على كل الحقول (بما فيها المفتاح الأساسي).
+    يعيد السجل المحدّث أو None إن لم يوجد القديم.
+
+    ملاحظة: UPDATE على عمود المفتاح الأساسي مدعوم في PostgreSQL طالما
+    لا توجد مفاتيح أجنبية تشير إليه. جدول subscription_codes لا يشير
+    إليه أي جدول آخر حسب ما نراه، لذا العملية آمنة.
+    """
+    old_code = old_code.strip().upper()
+    new_code = new_code.strip().upper()
+
+    # التأكد من عدم وجود الكود الجديد مسبقًا
+    exists = (
+        db.query(models.Subscription)
+        .filter(models.Subscription.code == new_code)
+        .first()
+    )
+    if exists:
+        return None
+
+    db_sub = get_subscription(db, old_code)
+    if not db_sub:
+        return None
+
+    db_sub.code = new_code
+    db_sub.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(db_sub)
+    return db_sub
 
 
 # ============================================================
@@ -122,7 +178,7 @@ _DEVICE_COLUMNS_SQL = """
 """
 
 
-def get_devices(db: Session, skip: int = 0, limit: int = 5000):
+def get_devices(db: Session, skip: int = 0, limit: int = 500):
     """
     جلب كافة البيانات من جدول subscription_codes (بدون أي شرط).
     يعيد كل صف بكل أعمدته بما فيها بيانات الجهاز.
@@ -157,7 +213,7 @@ def get_device(db: Session, device_id: str):
 def search_devices(db: Session, query: str, limit: int = 50):
     """
     البحث في كافة الصفوف بالكود أو bound_user_id أو IP
-    أو اسم الجهاز أو الـ install_uuid.
+    أو اسم الجهاز أو الـ install_uuid أو android_id.
     """
     q = f"%{query.strip()}%"
     sql = text(f"""
@@ -169,8 +225,10 @@ def search_devices(db: Session, query: str, limit: int = 50):
             OR bound_ip ILIKE :q
             OR device_model ILIKE :q
             OR public_ip ILIKE :q
+            OR local_ip ILIKE :q
             OR install_uuid ILIKE :q
             OR android_id ILIKE :q
+            OR os_version ILIKE :q
         ORDER BY COALESCE(last_seen, updated_at) DESC
         LIMIT :limit
     """)
