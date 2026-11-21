@@ -10,6 +10,7 @@ from typing import List
 
 from . import schemas, crud
 from .database import get_db, init_db, check_db_connection
+from .routers import mobile_api                                    # ✨ سطر 1 — جديد
 
 
 @asynccontextmanager
@@ -21,6 +22,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="لوحة إدارة أكواد الاشتراك", lifespan=lifespan)
+
+app.include_router(mobile_api.router)                              # ✨ سطر 2 — جديد
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -125,15 +128,12 @@ def get_subscription_by_user(user_id: str, db: Session = Depends(get_db)):
 # ============================================================
 # API Endpoints — الأجهزة (مستخرجة من جدول subscription_codes)
 # ============================================================
-# لا يوجد جدول مستخدمين/أجهزة منفصل، لذا نبني القائمة من
-# الصفوف التي لها bound_user_id غير فارغ (كل جهاز = bound_user_id فريد).
-# ============================================================
 
 @app.get("/api/users")
 def list_devices(
     skip: int = 0,
     limit: int = 5000,
-    q: str = Query(None, description="بحث بالمعرف/IP"),
+    q: str = Query(None, description="بحث بالمعرف/IP/اسم الجهاز"),
     db: Session = Depends(get_db),
 ):
     """قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات."""
@@ -157,7 +157,7 @@ def device_ips(device_id: str, db: Session = Depends(get_db)):
 
 
 # ============================================================
-# نقطة تشخيص سريعة (اختيارية)
+# نقطة تشخيص سريعة
 # ============================================================
 
 @app.get("/api/stats")
@@ -177,8 +177,15 @@ def stats(db: Session = Depends(get_db)):
         )
         .count()
     )
+    # ✨ جديد: عدد الأجهزة المسجّلة
+    devices = (
+        db.query(crud.models.Subscription)
+        .filter(crud.models.Subscription.install_uuid.isnot(None))
+        .count()
+    )
     return {
         "total_subscriptions": total,
         "active_subscriptions": active,
         "bound_subscriptions": bound,
+        "registered_devices": devices,                             # ✨ جديد
     }
