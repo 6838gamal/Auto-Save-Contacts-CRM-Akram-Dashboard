@@ -82,34 +82,55 @@ def get_subscription_by_user(db: Session, user_id: str):
 # الأجهزة / المستخدمون — جلب كافة البيانات دون شروط
 # ============================================================
 # ملاحظة: لا يوجد جدول مستخدمين منفصل، لذا نجلب كل الصفوف
-# من subscription_codes ونعيد كل بياناتها كما هي.
+# من subscription_codes ونعيد كل بياناتها بما فيها بيانات الجهاز.
 # ============================================================
+
+# ── قائمة الأعمدة (مركزية — تُستخدم في كل الاستعلامات) ──
+_DEVICE_COLUMNS_SQL = """
+    code,
+    plan_label,
+    is_subscribed,
+    is_active,
+    is_trial,
+    is_lifetime,
+    duration_minutes,
+    max_contacts,
+    used_contacts,
+    bound_user_id,
+    bound_ip,
+    activated_at,
+    expires_at,
+    notes,
+    created_at,
+    updated_at,
+    device_id,
+    android_id,
+    install_uuid,
+    public_ip,
+    local_ip,
+    location_info,
+    device_model,
+    os_version,
+    network_type,
+    saved_contacts_count,
+    free_contacts_used,
+    free_contacts_limit,
+    free_tier_exhausted,
+    app_version,
+    first_seen,
+    last_seen
+"""
+
 
 def get_devices(db: Session, skip: int = 0, limit: int = 5000):
     """
     جلب كافة البيانات من جدول subscription_codes (بدون أي شرط).
-    يعيد كل صف بكل أعمدته.
+    يعيد كل صف بكل أعمدته بما فيها بيانات الجهاز.
     """
-    sql = text("""
-        SELECT
-            code,
-            plan_label,
-            is_subscribed,
-            is_active,
-            is_trial,
-            is_lifetime,
-            duration_minutes,
-            max_contacts,
-            used_contacts,
-            bound_user_id,
-            bound_ip,
-            activated_at,
-            expires_at,
-            notes,
-            created_at,
-            updated_at
+    sql = text(f"""
+        SELECT {_DEVICE_COLUMNS_SQL}
         FROM subscription_codes
-        ORDER BY created_at DESC
+        ORDER BY COALESCE(last_seen, created_at) DESC
         OFFSET :skip LIMIT :limit
     """)
     rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
@@ -118,29 +139,14 @@ def get_devices(db: Session, skip: int = 0, limit: int = 5000):
 
 def get_device(db: Session, device_id: str):
     """
-    جلب صف واحد بواسطة bound_user_id (أو الكود إن لم يوجد bound_user_id).
-    بدون شروط على وجود bound_user_id.
+    جلب صف واحد بواسطة bound_user_id أو install_uuid أو code.
     """
-    sql = text("""
-        SELECT
-            code,
-            plan_label,
-            is_subscribed,
-            is_active,
-            is_trial,
-            is_lifetime,
-            duration_minutes,
-            max_contacts,
-            used_contacts,
-            bound_user_id,
-            bound_ip,
-            activated_at,
-            expires_at,
-            notes,
-            created_at,
-            updated_at
+    sql = text(f"""
+        SELECT {_DEVICE_COLUMNS_SQL}
         FROM subscription_codes
-        WHERE bound_user_id = :device_id OR code = :device_id
+        WHERE bound_user_id = :device_id
+           OR install_uuid = :device_id
+           OR code = :device_id
         ORDER BY updated_at DESC
         LIMIT 1
     """)
@@ -150,33 +156,22 @@ def get_device(db: Session, device_id: str):
 
 def search_devices(db: Session, query: str, limit: int = 50):
     """
-    البحث في كافة الصفوف بالكود أو bound_user_id أو IP.
+    البحث في كافة الصفوف بالكود أو bound_user_id أو IP
+    أو اسم الجهاز أو الـ install_uuid.
     """
     q = f"%{query.strip()}%"
-    sql = text("""
-        SELECT
-            code,
-            plan_label,
-            is_subscribed,
-            is_active,
-            is_trial,
-            is_lifetime,
-            duration_minutes,
-            max_contacts,
-            used_contacts,
-            bound_user_id,
-            bound_ip,
-            activated_at,
-            expires_at,
-            notes,
-            created_at,
-            updated_at
+    sql = text(f"""
+        SELECT {_DEVICE_COLUMNS_SQL}
         FROM subscription_codes
         WHERE
             code ILIKE :q
             OR bound_user_id ILIKE :q
             OR bound_ip ILIKE :q
-        ORDER BY updated_at DESC
+            OR device_model ILIKE :q
+            OR public_ip ILIKE :q
+            OR install_uuid ILIKE :q
+            OR android_id ILIKE :q
+        ORDER BY COALESCE(last_seen, updated_at) DESC
         LIMIT :limit
     """)
     rows = db.execute(sql, {"q": q, "limit": limit}).fetchall()
@@ -186,23 +181,32 @@ def search_devices(db: Session, query: str, limit: int = 50):
 def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
     """
     جلب عناوين IP المرتبطة بجهاز معيّن (من كل صفوفه).
+    يبحث في bound_ip و public_ip.
     """
     rows = (
         db.query(
             models.Subscription.bound_ip,
+            models.Subscription.public_ip,
             func.max(models.Subscription.updated_at).label("last_seen"),
         )
         .filter(
             models.Subscription.bound_user_id == device_id,
-            models.Subscription.bound_ip.isnot(None),
-            models.Subscription.bound_ip != "",
         )
-        .group_by(models.Subscription.bound_ip)
+        .group_by(
+            models.Subscription.bound_ip,
+            models.Subscription.public_ip,
+        )
         .order_by(func.max(models.Subscription.updated_at).desc())
         .limit(limit)
         .all()
     )
-    return [r.bound_ip for r in rows if r.bound_ip]
+    ips = []
+    for r in rows:
+        if r.bound_ip:
+            ips.append(r.bound_ip)
+        if r.public_ip and r.public_ip not in ips:
+            ips.append(r.public_ip)
+    return ips
 
 
 # ============================================================
@@ -212,7 +216,7 @@ def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
 def _serialize_full_row(row) -> dict:
     """
     تحويل صف SQLAlchemy Row إلى قاموس يحتوي كل الأعمدة.
-    يدعم القيم الناقصة والتواريخ.
+    يدعم القيم الناقصة والتواريخ (datetime → ISO string).
     """
     if row is None:
         return {}
