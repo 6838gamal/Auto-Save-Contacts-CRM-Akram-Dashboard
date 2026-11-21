@@ -35,6 +35,59 @@ else:
 Base = declarative_base()
 
 
+# ═══════════════════════════════════════════════════════════
+#  ✨ جديد: أعمدة الجهاز — تُضاف تلقائياً عند بدء السيرفر
+# ═══════════════════════════════════════════════════════════
+
+_DEVICE_COLUMN_MIGRATIONS = [
+    # أعمدة الجهاز
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS device_id TEXT DEFAULT ''",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS android_id TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS install_uuid TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS public_ip TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS local_ip TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS location_info TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS device_model TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS os_version TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS network_type TEXT",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS saved_contacts_count INT DEFAULT 0",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS free_contacts_used INT DEFAULT 0",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS free_contacts_limit INT DEFAULT 100",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS free_tier_exhausted BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS app_version TEXT DEFAULT '1.0'",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS first_seen TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE subscription_codes ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ DEFAULT NOW()",
+    # فهارس
+    "CREATE INDEX IF NOT EXISTS idx_sub_codes_install_uuid ON subscription_codes(install_uuid)",
+    "CREATE INDEX IF NOT EXISTS idx_sub_codes_user_id ON subscription_codes(bound_user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sub_codes_public_ip ON subscription_codes(public_ip)",
+    "CREATE INDEX IF NOT EXISTS idx_sub_codes_last_seen ON subscription_codes(last_seen DESC)",
+]
+
+
+def _ensure_device_columns() -> bool:
+    """
+    يضمن وجود أعمدة الجهاز في جدول subscription_codes.
+    آمن للتشغيل المتكرر (IF NOT EXISTS).
+    """
+    if engine is None:
+        return False
+    try:
+        with engine.connect() as conn:
+            for stmt in _DEVICE_COLUMN_MIGRATIONS:
+                conn.execute(text(stmt))
+            conn.commit()
+        logger.info("✅ تم التحقق من أعمدة الجهاز (device columns)")
+        return True
+    except Exception as e:
+        logger.error(f"❌ فشل إضافة أعمدة الجهاز: {e}")
+        return False
+
+
+# ═══════════════════════════════════════════════════════════
+#  الفحص والتهيئة
+# ═══════════════════════════════════════════════════════════
+
 def check_db_connection() -> tuple[bool, str]:
     if engine is None:
         return False, "لم يتم إعداد DATABASE_URL"
@@ -51,7 +104,7 @@ def check_db_connection() -> tuple[bool, str]:
 
 
 def init_db(max_retries: int = 10, delay: int = 3) -> bool:
-    """مهم في Docker: ننتظر حتى تجهز قاعدة البيانات."""
+    """مهم في Docker/Render: ننتظر حتى تجهز قاعدة البيانات."""
     if engine is None:
         logger.error("❌ لا يمكن تهيئة قاعدة البيانات: engine غير موجود")
         return False
@@ -63,6 +116,10 @@ def init_db(max_retries: int = 10, delay: int = 3) -> bool:
                 from . import models  # noqa
                 Base.metadata.create_all(bind=engine)
                 logger.info("✅ تم الاتصال بقاعدة البيانات وإنشاء الجداول")
+
+                # ✨ جديد: أضف أعمدة الجهاز إن لم تكن موجودة
+                _ensure_device_columns()
+
                 return True
             except Exception as e:
                 logger.error(f"❌ فشل إنشاء الجداول: {e}")
