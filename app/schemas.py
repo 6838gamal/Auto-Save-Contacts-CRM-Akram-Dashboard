@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional
 
@@ -31,7 +31,7 @@ class SubscriptionBase(BaseModel):
     notes: str = ""
 
     # ═══════════════════════════════════════════════════════
-    #  ✨ جديد: بيانات الجهاز
+    #  بيانات الجهاز
     # ═══════════════════════════════════════════════════════
     device_id: Optional[str] = ""
     android_id: Optional[str] = None
@@ -65,7 +65,7 @@ class SubscriptionCreate(SubscriptionBase):
 
 class SubscriptionUpdate(BaseModel):
     """تحديث جزئي — كل الحقول اختيارية"""
-    code: Optional[str] = None
+    # ملاحظة: code محذوف عمداً — تغييره يتم عبر endpoint /regenerate فقط
     plan_label: Optional[str] = None
     is_subscribed: Optional[bool] = None
     is_active: Optional[bool] = None
@@ -80,14 +80,23 @@ class SubscriptionUpdate(BaseModel):
     expires_at: Optional[int] = None
     notes: Optional[str] = None
 
-    # ✨ جديد: يمكن تحديث بيانات الجهاز من لوحة التحكم أيضاً
+    # بيانات الجهاز (اختيارية — يمكن تحديثها من لوحة التحكم)
     device_id: Optional[str] = None
+    android_id: Optional[str] = None
+    install_uuid: Optional[str] = None
+    public_ip: Optional[str] = None
+    local_ip: Optional[str] = None
+    location_info: Optional[str] = None
     device_model: Optional[str] = None
     os_version: Optional[str] = None
-    public_ip: Optional[str] = None
-    notes_device: Optional[str] = None  # للتوضيح فقط، ليس عموداً
+    network_type: Optional[str] = None
+    app_version: Optional[str] = None
 
 
 class SubscriptionResponse(SubscriptionBase):
-    """استجابة القراءة — كل الحقول بما فيها بيانات الجهاز"""
-    pass
+    """
+    استجابة القراءة — كل الحقول بما فيها بيانات الجهاز.
+    from_attributes=True يسمح بتحويل كائنات ORM مباشرة (لو استُخدمت
+    get_subscriptions القديمة)، ويعمل أيضاً مع dict من get_subscriptions_full.
+    """
+    model_config = ConfigDict(from_attributes=True)
