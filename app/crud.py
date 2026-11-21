@@ -5,7 +5,7 @@ from . import models, schemas
 
 
 # ============================================================
-# الاشتراكات (Subscriptions)
+# الاشتراكات (Subscriptions) — CRUD كامل
 # ============================================================
 
 def get_subscriptions(db: Session, skip: int = 0, limit: int = 100):
@@ -19,6 +19,7 @@ def get_subscriptions(db: Session, skip: int = 0, limit: int = 100):
 
 
 def get_subscription(db: Session, code: str):
+    """جلب كود اشتراك بواسطة الكود (المفتاح الأساسي)."""
     return (
         db.query(models.Subscription)
         .filter(models.Subscription.code == code.strip().upper())
@@ -64,6 +65,7 @@ def delete_subscription(db: Session, code: str):
 
 
 def get_subscription_by_user(db: Session, user_id: str):
+    """جلب اشتراك نشط مرتبط بجهاز معيّن."""
     return (
         db.query(models.Subscription)
         .filter(
@@ -77,64 +79,114 @@ def get_subscription_by_user(db: Session, user_id: str):
 
 
 # ============================================================
-# "الأجهزة" — مستخرجة من جدول الاشتراكات نفسه
+# الأجهزة / المستخدمون — جلب كافة البيانات دون شروط
+# ============================================================
+# ملاحظة: لا يوجد جدول مستخدمين منفصل، لذا نجلب كل الصفوف
+# من subscription_codes ونعيد كل بياناتها كما هي.
 # ============================================================
 
 def get_devices(db: Session, skip: int = 0, limit: int = 5000):
-    """قائمة الأجهزة/المستخدمين المعروفين (group by bound_user_id)."""
+    """
+    جلب كافة البيانات من جدول subscription_codes (بدون أي شرط).
+    يعيد كل صف بكل أعمدته.
+    """
     sql = text("""
         SELECT
-            bound_user_id AS user_id,
-            MAX(bound_ip) AS ip,
-            MIN(created_at) AS created_at,
-            COUNT(*) AS subscription_count
+            code,
+            plan_label,
+            is_subscribed,
+            is_active,
+            is_trial,
+            is_lifetime,
+            duration_minutes,
+            max_contacts,
+            used_contacts,
+            bound_user_id,
+            bound_ip,
+            activated_at,
+            expires_at,
+            notes,
+            created_at,
+            updated_at
         FROM subscription_codes
-        WHERE bound_user_id IS NOT NULL AND bound_user_id <> ''
-        GROUP BY bound_user_id
-        ORDER BY MAX(updated_at) DESC
+        ORDER BY created_at DESC
         OFFSET :skip LIMIT :limit
     """)
     rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
-    return [_serialize_device(r) for r in rows]
+    return [_serialize_full_row(r) for r in rows]
 
 
 def get_device(db: Session, device_id: str):
+    """
+    جلب صف واحد بواسطة bound_user_id (أو الكود إن لم يوجد bound_user_id).
+    بدون شروط على وجود bound_user_id.
+    """
     sql = text("""
         SELECT
-            bound_user_id AS user_id,
-            MAX(bound_ip) AS ip,
-            MIN(created_at) AS created_at,
-            COUNT(*) AS subscription_count
+            code,
+            plan_label,
+            is_subscribed,
+            is_active,
+            is_trial,
+            is_lifetime,
+            duration_minutes,
+            max_contacts,
+            used_contacts,
+            bound_user_id,
+            bound_ip,
+            activated_at,
+            expires_at,
+            notes,
+            created_at,
+            updated_at
         FROM subscription_codes
-        WHERE bound_user_id = :device_id
-        GROUP BY bound_user_id
+        WHERE bound_user_id = :device_id OR code = :device_id
+        ORDER BY updated_at DESC
         LIMIT 1
     """)
     row = db.execute(sql, {"device_id": device_id}).fetchone()
-    return _serialize_device(row) if row else None
+    return _serialize_full_row(row) if row else None
 
 
 def search_devices(db: Session, query: str, limit: int = 50):
+    """
+    البحث في كافة الصفوف بالكود أو bound_user_id أو IP.
+    """
     q = f"%{query.strip()}%"
     sql = text("""
         SELECT
-            bound_user_id AS user_id,
-            MAX(bound_ip) AS ip,
-            MIN(created_at) AS created_at,
-            COUNT(*) AS subscription_count
+            code,
+            plan_label,
+            is_subscribed,
+            is_active,
+            is_trial,
+            is_lifetime,
+            duration_minutes,
+            max_contacts,
+            used_contacts,
+            bound_user_id,
+            bound_ip,
+            activated_at,
+            expires_at,
+            notes,
+            created_at,
+            updated_at
         FROM subscription_codes
-        WHERE bound_user_id IS NOT NULL
-          AND bound_user_id <> ''
-          AND (bound_user_id ILIKE :q OR bound_ip ILIKE :q)
-        GROUP BY bound_user_id
-        ORDER BY MAX(updated_at) DESC
+        WHERE
+            code ILIKE :q
+            OR bound_user_id ILIKE :q
+            OR bound_ip ILIKE :q
+        ORDER BY updated_at DESC
         LIMIT :limit
     """)
     rows = db.execute(sql, {"q": q, "limit": limit}).fetchall()
-    return [_serialize_device(r) for r in rows]
+    return [_serialize_full_row(r) for r in rows]
 
 
 def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
+    """
+    جلب عناوين IP المرتبطة بجهاز معيّن (من كل صفوفه).
+    """
     rows = (
         db.query(
             models.Subscription.bound_ip,
@@ -153,18 +205,19 @@ def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
     return [r.bound_ip for r in rows if r.bound_ip]
 
 
-def _serialize_device(row) -> dict:
+# ============================================================
+# دالة مساعدة: تحويل صف كامل إلى dict JSON-friendly
+# ============================================================
+
+def _serialize_full_row(row) -> dict:
+    """
+    تحويل صف SQLAlchemy Row إلى قاموس يحتوي كل الأعمدة.
+    يدعم القيم الناقصة والتواريخ.
+    """
     if row is None:
         return {}
     m = dict(row._mapping)
     for k, v in m.items():
         if isinstance(v, datetime):
             m[k] = v.isoformat()
-    uid = str(m.get("user_id") or "")
-    return {
-        "user_id": uid,
-        "name": uid,
-        "ip": m.get("ip"),
-        "created_at": m.get("created_at"),
-        "subscription_count": m.get("subscription_count", 0),
-    }
+    return m
