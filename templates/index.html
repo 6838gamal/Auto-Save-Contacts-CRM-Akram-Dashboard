@@ -44,7 +44,7 @@
                     <div class="user-picker-box">
                         <input type="hidden" id="bound_user_id">
                         <input type="text" id="user-search"
-                               placeholder="🔍 اكتب معرّف الجهاز أو IP أو الكود للبحث..."
+                               placeholder="🔍 اكتب معرّف الجهاز أو IP أو اسم الجهاز للبحث..."
                                autocomplete="off">
                         <button type="button" class="user-add" onclick="addManualDevice()" title="إضافة جهاز يدوياً">➕</button>
                         <button type="button" class="user-clear" onclick="clearUser()" title="إزالة الربط">✖</button>
@@ -53,23 +53,55 @@
                     <small id="user-selected-hint" class="user-hint"></small>
                 </div>
 
-                <!-- بطاقة تفاصيل الجهاز (تظهر عند اختيار جهاز) -->
+                <!-- بطاقة تفاصيل الجهاز (موسّعة) -->
                 <div id="user-details-card" class="user-details-card hidden" style="grid-column:1/-1;">
                     <div class="detail-item">
                         <span class="detail-label">🆔 معرّف الجهاز</span>
                         <span class="detail-value mono" id="detail-id">-</span>
                     </div>
                     <div class="detail-item">
-                        <span class="detail-label">🌐 IP</span>
+                        <span class="detail-label">📱 الموديل</span>
+                        <span class="detail-value" id="detail-model">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🤖 نظام التشغيل</span>
+                        <span class="detail-value" id="detail-os">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🌐 IP عام</span>
                         <span class="detail-value mono" id="detail-ip">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🏠 IP محلي</span>
+                        <span class="detail-value mono" id="detail-local-ip">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">📶 نوع الشبكة</span>
+                        <span class="detail-value" id="detail-network">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">📍 الموقع</span>
+                        <span class="detail-value" id="detail-location">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🔗 الحصة</span>
+                        <span class="detail-value" id="detail-quota">-</span>
                     </div>
                     <div class="detail-item">
                         <span class="detail-label">📅 أول ظهور</span>
                         <span class="detail-value" id="detail-created">-</span>
                     </div>
                     <div class="detail-item">
-                        <span class="detail-label">🔗 الحصة</span>
-                        <span class="detail-value" id="detail-quota">-</span>
+                        <span class="detail-label">👁️ آخر ظهور</span>
+                        <span class="detail-value" id="detail-last-seen">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">🔧 UUID التثبيت</span>
+                        <span class="detail-value mono" id="detail-install-uuid">-</span>
+                    </div>
+                    <div class="detail-item">
+                        <span class="detail-label">📦 إصدار التطبيق</span>
+                        <span class="detail-value" id="detail-app-version">-</span>
                     </div>
                 </div>
 
@@ -109,11 +141,13 @@
                     <tr>
                         <th>الكود</th>
                         <th>الجهاز المرتبط</th>
+                        <th>الموديل</th>
                         <th>IP</th>
+                        <th>الشبكة</th>
                         <th>الحصة</th>
+                        <th>آخر ظهور</th>
                         <th>الانتهاء</th>
                         <th>الحالة</th>
-                        <th>ملاحظات</th>
                         <th>إجراءات</th>
                     </tr>
                 </thead>
@@ -205,7 +239,8 @@
             try {
                 const d = new Date(s);
                 if (isNaN(d.getTime())) return "-";
-                return d.toLocaleDateString("ar-EG");
+                return d.toLocaleDateString("ar-EG") + " " +
+                       d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
             } catch { return "-"; }
         }
         function epochToInput(ms) { return ms ? String(ms) : ""; }
@@ -226,7 +261,7 @@
                 .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
 
-        /* ===== استخراج معرف/اسم/IP من صف subscription_codes ===== */
+        /* ===== استخراج معرف/اسم/IP/موديل من صف subscription_codes ===== */
         function userId(u) {
             return u.bound_user_id ?? u.user_id ?? u.code ?? "";
         }
@@ -234,10 +269,17 @@
             return u.bound_user_id ?? u.name ?? u.code ?? "";
         }
         function userIp(u) {
-            return u.bound_ip ?? u.ip ?? "";
+            // الأولوية: public_ip (من التطبيق) ثم bound_ip (من لوحة التحكم)
+            return u.public_ip ?? u.bound_ip ?? u.ip ?? "";
+        }
+        function userModel(u) {
+            return u.device_model ?? "";
+        }
+        function userNetwork(u) {
+            return u.network_type ?? "";
         }
         function userQuota(u) {
-            const used = u.used_contacts ?? 0;
+            const used = u.used_contacts ?? u.saved_contacts_count ?? 0;
             const max = u.max_contacts;
             return max != null ? `${used} / ${max}` : `${used} / ∞`;
         }
@@ -268,7 +310,10 @@
                     const id = String(userId(u)).toLowerCase();
                     const ip = String(userIp(u)).toLowerCase();
                     const code = String(u.code ?? "").toLowerCase();
-                    return id.includes(q) || ip.includes(q) || code.includes(q);
+                    const model = String(userModel(u)).toLowerCase();
+                    const uuid = String(u.install_uuid ?? "").toLowerCase();
+                    return id.includes(q) || ip.includes(q) || code.includes(q)
+                        || model.includes(q) || uuid.includes(q);
                 });
             }
             const shown = list.slice(0, 50);
@@ -278,12 +323,15 @@
                 dd.innerHTML = shown.map(u => {
                     const id = userId(u);
                     const ip = userIp(u);
+                    const model = userModel(u);
                     const ipHtml = ip ? `<span class="user-ip">🌐 ${escapeHtml(String(ip))}</span>` : "";
+                    const modelHtml = model ? `<span class="user-ip">📱 ${escapeHtml(String(model))}</span>` : "";
                     return `
                     <div class="user-item" onclick='selectUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>
                         <div class="user-info">
                             <span class="user-name mono">${escapeHtml(String(id))}</span>
                         </div>
+                        ${modelHtml}
                         ${ipHtml}
                     </div>`;
                 }).join("");
@@ -318,9 +366,17 @@
         function showUserDetails(u) {
             const card = document.getElementById("user-details-card");
             document.getElementById("detail-id").textContent = userId(u) || "-";
-            document.getElementById("detail-ip").textContent = userIp(u) || "—";
-            document.getElementById("detail-created").textContent = fmtDateStr(u.created_at);
+            document.getElementById("detail-model").textContent = u.device_model || "—";
+            document.getElementById("detail-os").textContent = u.os_version || "—";
+            document.getElementById("detail-ip").textContent = u.public_ip || "—";
+            document.getElementById("detail-local-ip").textContent = u.local_ip || "—";
+            document.getElementById("detail-network").textContent = u.network_type || "—";
+            document.getElementById("detail-location").textContent = u.location_info || "—";
             document.getElementById("detail-quota").textContent = userQuota(u);
+            document.getElementById("detail-created").textContent = fmtDateStr(u.first_seen || u.created_at);
+            document.getElementById("detail-last-seen").textContent = fmtDateStr(u.last_seen);
+            document.getElementById("detail-install-uuid").textContent = u.install_uuid || "—";
+            document.getElementById("detail-app-version").textContent = u.app_version || "—";
             card.classList.remove("hidden");
         }
 
@@ -379,23 +435,28 @@
         function renderTable(data) {
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
                 const deviceDisplay = s.bound_user_id || "-";
-                const ipDisplay = s.bound_ip || "-";
+                const ipDisplay = userIp(s) || "-";
+                const modelDisplay = s.device_model || "-";
+                const networkDisplay = s.network_type || "-";
                 const quota = userQuota(s);
+                const lastSeen = s.last_seen ? fmtDateStr(s.last_seen) : "-";
 
                 return `
                 <tr>
                     <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
                     <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(String(deviceDisplay))}</td>
+                    <td data-label="الموديل">${escapeHtml(String(modelDisplay))}</td>
                     <td data-label="IP" class="mono">${escapeHtml(String(ipDisplay))}</td>
+                    <td data-label="الشبكة">${escapeHtml(String(networkDisplay))}</td>
                     <td data-label="الحصة">${quota}</td>
+                    <td data-label="آخر ظهور">${lastSeen}</td>
                     <td data-label="الانتهاء">${s.is_lifetime ? "∞" : fmtEpoch(s.expires_at)}</td>
                     <td data-label="الحالة">${statusBadge(s)}</td>
-                    <td data-label="ملاحظات">${escapeHtml(s.notes || "-")}</td>
                     <td data-label="إجراءات">
                         <button onclick='editSub(${JSON.stringify(s).replace(/'/g, "&#39;")})'>✏️</button>
                         <button class="btn-danger" onclick="deleteSub('${escapeHtml(s.code)}')">🗑️</button>
