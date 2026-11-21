@@ -44,7 +44,7 @@
                     <div class="user-picker-box">
                         <input type="hidden" id="bound_user_id">
                         <input type="text" id="user-search"
-                               placeholder="🔍 اكتب معرّف الجهاز أو IP للبحث..."
+                               placeholder="🔍 اكتب معرّف الجهاز أو IP أو الكود للبحث..."
                                autocomplete="off">
                         <button type="button" class="user-add" onclick="addManualDevice()" title="إضافة جهاز يدوياً">➕</button>
                         <button type="button" class="user-clear" onclick="clearUser()" title="إزالة الربط">✖</button>
@@ -68,8 +68,8 @@
                         <span class="detail-value" id="detail-created">-</span>
                     </div>
                     <div class="detail-item">
-                        <span class="detail-label">🔗 عدد الاشتراكات</span>
-                        <span class="detail-value" id="detail-count">-</span>
+                        <span class="detail-label">🔗 الحصة</span>
+                        <span class="detail-value" id="detail-quota">-</span>
                     </div>
                 </div>
 
@@ -110,6 +110,7 @@
                         <th>الكود</th>
                         <th>الجهاز المرتبط</th>
                         <th>IP</th>
+                        <th>الحصة</th>
                         <th>الانتهاء</th>
                         <th>الحالة</th>
                         <th>ملاحظات</th>
@@ -126,14 +127,14 @@
 
     <script>
         const API = "/api/subscriptions";
-        const USERS_API = "/api/users";   // الأجهزة من جدول الاشتراكات
+        const USERS_API = "/api/users";   // كل الصفوف من subscription_codes
         let retryTimer = null;
 
         /* ===== ثوابت الاشتراك السنوي ===== */
         const FIXED_PLAN_LABEL = "اشتراك سنوي";
         const FIXED_DURATION_MINUTES = 525600; // سنة واحدة
 
-        /* ===== كاش الأجهزة ===== */
+        /* ===== كاش الأجهزة/الصفوف ===== */
         let allUsers = [];
         let selectedUser = null;
 
@@ -225,15 +226,20 @@
                 .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
 
-        /* ===== الأجهزة ===== */
+        /* ===== استخراج معرف/اسم/IP من صف subscription_codes ===== */
         function userId(u) {
-            return u.user_id ?? u.id ?? u.telegram_id ?? "";
+            return u.bound_user_id ?? u.user_id ?? u.code ?? "";
         }
         function userName(u) {
-            return u.name ?? u.username ?? u.full_name ?? u.first_name ?? userId(u);
+            return u.bound_user_id ?? u.name ?? u.code ?? "";
         }
         function userIp(u) {
-            return u.ip ?? u.last_ip ?? u.bound_ip ?? "";
+            return u.bound_ip ?? u.ip ?? "";
+        }
+        function userQuota(u) {
+            const used = u.used_contacts ?? 0;
+            const max = u.max_contacts;
+            return max != null ? `${used} / ${max}` : `${used} / ∞`;
         }
 
         async function loadUsers() {
@@ -241,7 +247,6 @@
                 const res = await fetch(USERS_API);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 allUsers = await res.json();
-                // إن كان هناك جهاز محدد سابقاً (وضع التعديل) اعرضه
                 if (document.getElementById("bound_user_id").value) {
                     const id = document.getElementById("bound_user_id").value;
                     const u = allUsers.find(x => String(userId(x)) === String(id));
@@ -260,10 +265,10 @@
             let list = allUsers;
             if (q) {
                 list = allUsers.filter(u => {
-                    const name = String(userName(u)).toLowerCase();
                     const id = String(userId(u)).toLowerCase();
                     const ip = String(userIp(u)).toLowerCase();
-                    return name.includes(q) || id.includes(q) || ip.includes(q);
+                    const code = String(u.code ?? "").toLowerCase();
+                    return id.includes(q) || ip.includes(q) || code.includes(q);
                 });
             }
             const shown = list.slice(0, 50);
@@ -271,12 +276,13 @@
                 dd.innerHTML = `<div class="user-empty">لا توجد نتائج مطابقة — استخدم ➕ لإضافة جهاز يدوياً</div>`;
             } else {
                 dd.innerHTML = shown.map(u => {
+                    const id = userId(u);
                     const ip = userIp(u);
                     const ipHtml = ip ? `<span class="user-ip">🌐 ${escapeHtml(String(ip))}</span>` : "";
                     return `
                     <div class="user-item" onclick='selectUser(${JSON.stringify(u).replace(/'/g, "&#39;")})'>
                         <div class="user-info">
-                            <span class="user-name mono">${escapeHtml(String(userName(u)))}</span>
+                            <span class="user-name mono">${escapeHtml(String(id))}</span>
                         </div>
                         ${ipHtml}
                     </div>`;
@@ -296,7 +302,7 @@
                 document.getElementById("user-search").value = userName(u);
             }
 
-            // ✅ ملء IP تلقائياً من بيانات الجهاز
+            // ✅ ملء IP تلقائياً
             const ip = userIp(u);
             document.getElementById("bound_ip").value = ip || "";
 
@@ -314,7 +320,7 @@
             document.getElementById("detail-id").textContent = userId(u) || "-";
             document.getElementById("detail-ip").textContent = userIp(u) || "—";
             document.getElementById("detail-created").textContent = fmtDateStr(u.created_at);
-            document.getElementById("detail-count").textContent = u.subscription_count ?? "-";
+            document.getElementById("detail-quota").textContent = userQuota(u);
             card.classList.remove("hidden");
         }
 
@@ -335,12 +341,12 @@
 
         /* ===== إضافة جهاز يدوياً ===== */
         function addManualDevice() {
-            const id = prompt("أدخل معرّف الجهاز (user_id):");
+            const id = prompt("أدخل معرّف الجهاز (bound_user_id):");
             if (!id || !id.trim()) return;
             const trimmed = id.trim();
             let u = allUsers.find(x => String(userId(x)) === trimmed);
             if (!u) {
-                u = { user_id: trimmed, name: trimmed, ip: null, subscription_count: 0 };
+                u = { bound_user_id: trimmed, bound_ip: null, used_contacts: 0, max_contacts: null };
                 allUsers.push(u);
             }
             selectUser(u);
@@ -373,21 +379,20 @@
         function renderTable(data) {
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
-                const userObj = allUsers.find(u => String(userId(u)) === String(s.bound_user_id));
-                const deviceDisplay = s.bound_user_id
-                    ? (userObj ? String(userName(userObj)) : s.bound_user_id)
-                    : "-";
-                const ipDisplay = s.bound_ip || (userObj ? userIp(userObj) : "") || "-";
+                const deviceDisplay = s.bound_user_id || "-";
+                const ipDisplay = s.bound_ip || "-";
+                const quota = userQuota(s);
 
                 return `
                 <tr>
                     <td data-label="الكود" class="code-cell">${escapeHtml(s.code)}</td>
-                    <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(deviceDisplay)}</td>
+                    <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(String(deviceDisplay))}</td>
                     <td data-label="IP" class="mono">${escapeHtml(String(ipDisplay))}</td>
+                    <td data-label="الحصة">${quota}</td>
                     <td data-label="الانتهاء">${s.is_lifetime ? "∞" : fmtEpoch(s.expires_at)}</td>
                     <td data-label="الحالة">${statusBadge(s)}</td>
                     <td data-label="ملاحظات">${escapeHtml(s.notes || "-")}</td>
@@ -485,6 +490,8 @@
                     const hint = document.getElementById("user-selected-hint");
                     hint.textContent = `⚠️ جهاز غير موجود في القائمة (ID: ${s.bound_user_id})`;
                     hint.style.color = "var(--warning)";
+                    // نعرض بطاقة تفاصيل من بيانات الصف نفسه
+                    showUserDetails(s);
                 }
             } else {
                 clearUser();
