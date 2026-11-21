@@ -31,7 +31,10 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
-# --- معالجات أخطاء قاعدة البيانات ---
+# ============================================================
+# معالجات أخطاء قاعدة البيانات
+# ============================================================
+
 @app.exception_handler(OperationalError)
 async def db_operational_error_handler(request: Request, exc: OperationalError):
     return JSONResponse(
@@ -56,7 +59,10 @@ async def db_sqlalchemy_error_handler(request: Request, exc: SQLAlchemyError):
     )
 
 
-# --- فحص الحالة ---
+# ============================================================
+# فحص الحالة
+# ============================================================
+
 @app.get("/health")
 def health():
     ok, err = check_db_connection()
@@ -68,7 +74,10 @@ def health():
     )
 
 
-# --- الصفحة الرئيسية ---
+# ============================================================
+# الصفحة الرئيسية
+# ============================================================
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -80,8 +89,11 @@ def index(request: Request):
 
 @app.get("/api/subscriptions", response_model=List[schemas.SubscriptionResponse])
 def list_subscriptions(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
-    """قائمة كل الاشتراكات — الحد الافتراضي رُفع إلى 1000 لعرض الجدول كاملاً."""
-    return crud.get_subscriptions(db, skip=skip, limit=limit)
+    """
+    قائمة كل الاشتراكات مع **كل الأعمدة** (بما فيها بيانات الجهاز).
+    تستخدم get_subscriptions_full لضمان إرجاع 16 عموداً يعرضها الجدول.
+    """
+    return crud.get_subscriptions_full(db, skip=skip, limit=limit)
 
 
 # ⚠️ نقطة by-user توضع قبل {code} دفاعياً لتجنّب أي تعارض في المطابقة
@@ -114,6 +126,9 @@ def create_subscription(sub: schemas.SubscriptionCreate, db: Session = Depends(g
 
 @app.put("/api/subscriptions/{code}", response_model=schemas.SubscriptionResponse)
 def update_subscription(code: str, sub: schemas.SubscriptionUpdate, db: Session = Depends(get_db)):
+    """
+    تحديث جزئي — يستخدم exclude_unset في crud لتفادي تصفير الحقول غير المرسلة.
+    """
     updated = crud.update_subscription(db, code, sub)
     if not updated:
         raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
@@ -129,8 +144,9 @@ def delete_subscription(code: str, db: Session = Depends(get_db)):
 
 
 # ============================================================
-# ✨ نقطة إعادة توليد كود اشتراك (تستبدل القديم مع الحفاظ على كل الحقول)
+# ✨ إعادة توليد كود اشتراك (تستبدل القديم مع الحفاظ على كل الحقول)
 # ============================================================
+
 def _generate_unique_code(db: Session, max_attempts: int = 20) -> str:
     """يولّد كوداً فريداً بصيغة XXXX-XXXX-XXXX."""
     alphabet = string.ascii_uppercase.replace("I", "").replace("O", "") + "23456789"
@@ -145,13 +161,15 @@ def _generate_unique_code(db: Session, max_attempts: int = 20) -> str:
 
 @app.post("/api/subscriptions/{code}/regenerate", response_model=schemas.SubscriptionResponse)
 def regenerate_subscription_code(code: str, db: Session = Depends(get_db)):
-    """يولّد كوداً جديداً ويستبدل القديم في نفس السجل (يحافظ على الربط والحقول)."""
+    """
+    يولّد كوداً جديداً ويستبدل القديم في **نفس السجل**
+    (يحافظ على الربط، notes، expires_at، وكل بيانات الجهاز).
+    """
     sub = crud.get_subscription(db, code)
     if not sub:
         raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
 
     new_code = _generate_unique_code(db)
-
     updated = crud.rename_subscription_code(db, code, new_code)
     if not updated:
         raise HTTPException(status_code=500, detail="فشل تحديث الكود")
@@ -161,8 +179,10 @@ def regenerate_subscription_code(code: str, db: Session = Depends(get_db)):
 # ============================================================
 # ✨ نقطة تفعيل / إيقاف سريعة
 # ============================================================
+
 @app.patch("/api/subscriptions/{code}/toggle", response_model=schemas.SubscriptionResponse)
 def toggle_subscription(code: str, db: Session = Depends(get_db)):
+    """تبدّل is_active بين True/False — تُستخدمها أزرار 🟢/🔴 في الجدول."""
     sub = crud.get_subscription(db, code)
     if not sub:
         raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
@@ -183,7 +203,8 @@ def list_devices(
     q: str = Query(None, description="بحث بالمعرف/IP/اسم الجهاز/الموديل/UUID"),
     db: Session = Depends(get_db),
 ):
-    """قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات.
+    """
+    قائمة الأجهزة/المستخدمين المعروفين من جدول الاشتراكات.
     عند وجود q يتم البحث من الخادم (أسرع بكثير من تحميل كل الصفوف).
     """
     if q:
