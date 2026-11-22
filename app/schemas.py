@@ -57,6 +57,9 @@ class SubscriptionBase(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+    # ✨ جديد: آخر جهاز استخدم الكود (للكشف عن التكرار)
+    last_used_user_id: Optional[str] = None
+
 
 class SubscriptionCreate(SubscriptionBase):
     """لإنشاء كود جديد — كل الحقول الأساسية مطلوبة/افتراضية من Base"""
@@ -65,7 +68,6 @@ class SubscriptionCreate(SubscriptionBase):
 
 class SubscriptionUpdate(BaseModel):
     """تحديث جزئي — كل الحقول اختيارية"""
-    # ملاحظة: code محذوف عمداً — تغييره يتم عبر endpoint /regenerate فقط
     plan_label: Optional[str] = None
     is_subscribed: Optional[bool] = None
     is_active: Optional[bool] = None
@@ -80,7 +82,6 @@ class SubscriptionUpdate(BaseModel):
     expires_at: Optional[int] = None
     notes: Optional[str] = None
 
-    # بيانات الجهاز (اختيارية — يمكن تحديثها من لوحة التحكم)
     device_id: Optional[str] = None
     android_id: Optional[str] = None
     install_uuid: Optional[str] = None
@@ -95,8 +96,6 @@ class SubscriptionUpdate(BaseModel):
 
 class SubscriptionResponse(SubscriptionBase):
     """
-    استجابة القراءة — كل الحقول بما فيها بيانات الجهاز.
-    from_attributes=True يسمح بتحويل كائنات ORM مباشرة (لو استُخدمت
-    get_subscriptions القديمة)، ويعمل أيضاً مع dict من get_subscriptions_full.
+    استجابة القراءة — كل الحقول بما فيها بيانات الجهاز + آخر جهاز مستخدم.
     """
     model_config = ConfigDict(from_attributes=True)
