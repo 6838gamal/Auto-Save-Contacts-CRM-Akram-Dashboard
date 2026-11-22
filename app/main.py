@@ -90,10 +90,21 @@ def index(request: Request):
 @app.get("/api/subscriptions", response_model=List[schemas.SubscriptionResponse])
 def list_subscriptions(skip: int = 0, limit: int = 1000, db: Session = Depends(get_db)):
     """
-    قائمة كل الاشتراكات مع **كل الأعمدة** (بما فيها بيانات الجهاز).
-    تستخدم get_subscriptions_full لضمان إرجاع 16 عموداً يعرضها الجدول.
+    قائمة كل الاشتراكات مع **كل الأعمدة** (بما فيها بيانات الجهاز)
+    + آخر جهاز استخدم الكود (last_used_user_id) لكشف التكرار.
     """
     return crud.get_subscriptions_full(db, skip=skip, limit=limit)
+
+
+# ⚠️ نقطة check-code توضع قبل {code} لتجنّب تعارض المطابقة
+@app.get("/api/subscriptions/check-code/{code}")
+def check_code_exists(code: str, db: Session = Depends(get_db)):
+    """
+    ✨ يتحقق من وجود كود دون إرجاع 404.
+    تستخدمها الواجهة عند توليد كود جديد للتأكد من عدم تكراره.
+    """
+    exists = crud.get_subscription(db, code) is not None
+    return {"code": code.strip().upper(), "exists": exists}
 
 
 # ⚠️ نقطة by-user توضع قبل {code} دفاعياً لتجنّب أي تعارض في المطابقة
@@ -164,6 +175,7 @@ def regenerate_subscription_code(code: str, db: Session = Depends(get_db)):
     """
     يولّد كوداً جديداً ويستبدل القديم في **نفس السجل**
     (يحافظ على الربط، notes، expires_at، وكل بيانات الجهاز).
+    ينقل سجلات الاستخدام للكود الجديد (عبر crud.rename_subscription_code).
     """
     sub = crud.get_subscription(db, code)
     if not sub:
@@ -190,6 +202,25 @@ def toggle_subscription(code: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(sub)
     return sub
+
+
+# ============================================================
+# ✨ سجلات استخدام الكود (لعرض التفاصيل وكشف التكرار)
+# ============================================================
+
+@app.get("/api/subscriptions/{code}/usage-logs")
+def get_usage_logs(code: str, limit: int = 50, db: Session = Depends(get_db)):
+    """
+    كل سجلات استخدام كود معيّن (للاطلاع على الأجهزة التي استخدمته).
+    """
+    sub = crud.get_subscription(db, code)
+    if not sub:
+        raise HTTPException(status_code=404, detail=f"الكود '{code}' غير موجود")
+    return {
+        "code": code.strip().upper(),
+        "bound_user_id": sub.bound_user_id,
+        "logs": crud.get_usage_logs(db, code, limit=limit),
+    }
 
 
 # ============================================================
