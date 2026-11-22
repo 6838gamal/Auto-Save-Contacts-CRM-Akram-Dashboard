@@ -248,12 +248,13 @@
             verifyCodeOnServer(code);
         }
 
+        // ✨ التحقق من وجود الكود عبر endpoint مخصص (لا يرجع 404)
         async function verifyCodeOnServer(code) {
             try {
-                const res = await fetch(`${API}?code=${encodeURIComponent(code)}`);
+                const res = await fetch(`${API}/check-code/${encodeURIComponent(code)}`);
                 if (res.ok) {
                     const data = await res.json();
-                    if (Array.isArray(data) && data.some(s => String(s.code).toUpperCase() === code.toUpperCase())) {
+                    if (data.exists) {
                         document.getElementById("code-warn").textContent =
                             "⚠️ هذا الكود موجود مسبقاً، أعد التوليد.";
                     }
