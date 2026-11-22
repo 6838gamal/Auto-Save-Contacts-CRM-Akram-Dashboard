@@ -97,7 +97,6 @@ h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
     align-self: end;
 }
 
-/* حقل الكود بخط ثابت */
 #sub-form #code {
     font-family: 'Courier New', monospace;
     font-weight: 700;
@@ -310,9 +309,9 @@ h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
 .detail-value.mono { font-family: 'Courier New', monospace; font-size: 12px; }
 
 /* ============================================================
-   شريط البحث أعلى الجدول
+   شريط البحث أعلى الجدول + مؤشر التحديث التلقائي
    ============================================================ */
-.search-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.search-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; }
 .search-bar input {
     flex: 1;
     min-width: 180px;
@@ -339,6 +338,32 @@ h2 { margin-bottom: 15px; color: #444; font-size: 18px; }
 }
 .search-bar button:hover { background: #dfe4ea; }
 
+/* مؤشر التحديث التلقائي */
+.refresh-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    cursor: default;
+    user-select: none;
+    flex-shrink: 0;
+    transition: background 0.2s, color 0.2s;
+}
+.refresh-indicator.spinning {
+    animation: spin 0.6s linear;
+    background: #dbeafe;
+    color: #2563eb;
+}
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
 /* ============================================================
    جدول الاشتراكات
    ============================================================ */
@@ -356,7 +381,7 @@ table {
     background: white;
     border-radius: 10px;
     overflow: hidden;
-    min-width: 1200px; /* 16 عمود */
+    min-width: 1400px; /* 18 عمود */
 }
 
 th, td {
@@ -388,6 +413,32 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 /* ============================================================
+   كشف تكرار الكود من جهاز آخر
+   ============================================================ */
+.row-duplicate {
+    background: #fee2e2 !important;
+    border-right: 4px solid var(--danger);
+}
+.row-duplicate:hover { background: #fecaca !important; }
+.dup-cell { color: var(--danger) !important; font-weight: 700 !important; }
+.dup-badge {
+    display: inline-block;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+    font-weight: 700;
+    animation: dup-pulse 1.2s infinite;
+    vertical-align: middle;
+}
+@keyframes dup-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
+}
+
+/* ============================================================
    شارات الحالة
    ============================================================ */
 .status {
@@ -404,7 +455,7 @@ tbody tr:last-child td { border-bottom: none; }
 .status.cancelled { background: #fff3cd; color: #856404; }
 
 /* ============================================================
-   أزرار الصف (row-actions) — أربعة أزرار
+   أزرار الصف (row-actions)
    ============================================================ */
 .row-actions {
     display: flex;
@@ -614,9 +665,15 @@ tbody tr:last-child td { border-bottom: none; }
     }
 
     /* --- شريط البحث على الجوال --- */
-    .search-bar { flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .search-bar { flex-direction: column; gap: 8px; margin-bottom: 12px; align-items: stretch; }
     .search-bar input { font-size: 16px; padding: 13px 14px; }
     .search-bar button { width: 100%; padding: 13px; font-size: 15px; }
+    .refresh-indicator {
+        width: 100%;
+        height: 38px;
+        border-radius: 8px;
+        order: -1;
+    }
 
     /* --- تحويل الجدول إلى بطاقات --- */
     .table-wrap {
@@ -654,6 +711,13 @@ tbody tr:last-child td { border-bottom: none; }
         border-radius: 0 12px 12px 0;
     }
 
+    /* الصفوف المكررة على الجوال */
+    tbody tr.row-duplicate {
+        background: #fff5f5 !important;
+        border-color: #ffb3b3;
+    }
+    tbody tr.row-duplicate::before { background: var(--danger); }
+
     tbody td {
         display: flex;
         justify-content: space-between;
@@ -686,6 +750,10 @@ tbody tr:last-child td { border-bottom: none; }
         font-weight: 700;
     }
     tbody td[data-label="الكود"]::before { color: var(--primary-dark); }
+
+    tbody tr.row-duplicate td[data-label="الكود"] {
+        background: #fff0f0;
+    }
 
     /* خانة الإجراءات: أزرار بعرض البطاقة */
     tbody td[data-label="إجراءات"] {
