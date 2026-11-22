@@ -61,7 +61,7 @@
                     <input type="date" id="start_date" onchange="recalcExpiry()">
                 </div>
 
-                <!-- تاريخ الانتهاء (عرض فقط) -->
+                <!-- تاريخ الانتهاء -->
                 <div>
                     <label for="expires_display">تاريخ الانتهاء (يُحسب تلقائياً)</label>
                     <input type="text" id="expires_display" readonly placeholder="—">
@@ -163,7 +163,6 @@
         const USERS_API = "/api/users";
         let retryTimer = null;
 
-        // الخطط المتاحة
         const PLANS = {
             "5":  { months: 5,  label: "5 أشهر",  minutes: 5 * 30 * 24 * 60 },
             "12": { months: 12, label: "12 شهر",  minutes: 12 * 30 * 24 * 60 }
@@ -341,7 +340,7 @@
             return max != null ? `${used} / ${max}` : `${used} / ∞`;
         }
 
-        /* ===== كشف تكرار الكود على جهاز آخر ===== */
+        /* ===== كشف تكرار الكود ===== */
         function isDuplicated(s) {
             const last = s.last_used_user_id || s.used_by_user_id || s.current_user_id;
             if (!last) return false;
