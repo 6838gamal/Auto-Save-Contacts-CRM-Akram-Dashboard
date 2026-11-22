@@ -13,6 +13,9 @@ Mobile API — نقاط النهاية التي يتصل بها تطبيق Andro
     POST /api/subscription/usage
     POST /api/subscription/review-request
     POST /api/clients/sync
+
+✨ جديد:
+    POST /api/mobile/subscriptions/{code}/use  ← تسجيل استخدام لاكتشاف التكرار
 """
 import os
 import uuid as _uuid
@@ -24,9 +27,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from ..database import get_db
+from .. import crud
 
 
 router = APIRouter(prefix="/api", tags=["Mobile App"])
+
 
 # ═══════════════════════════════════════════════════════════
 #  التحقق من مفتاح API
@@ -140,6 +145,13 @@ class ClientSyncRequest(BaseModel):
     clients: list[ClientItem]
 
 
+# ✨ جديد: نموذج تسجيل استخدام الكود
+class UsageLogRequest(BaseModel):
+    user_id: str
+    device_id: str = ""
+    ip: Optional[str] = None
+
+
 # ═══════════════════════════════════════════════════════════
 #  دوال مساعدة
 # ═══════════════════════════════════════════════════════════
@@ -197,7 +209,6 @@ def connect(req: ConnectRequest, db: Session = Depends(get_db)):
     code = _find_row_by_identity(db, req)
 
     if code:
-        # حدّث الصف الموجود
         db.execute(text("""
             UPDATE subscription_codes SET
                 bound_user_id = COALESCE(NULLIF(bound_user_id, ''), :user_id),
@@ -220,7 +231,6 @@ def connect(req: ConnectRequest, db: Session = Depends(get_db)):
             WHERE code = :code
         """), {**req.model_dump(), "code": code})
     else:
-        # أنشئ صفاً جديداً
         code = f"DEV-{_uuid.uuid4().hex[:12].upper()}"
         db.execute(text("""
             INSERT INTO subscription_codes (
@@ -267,6 +277,7 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
     - الكود يجب أن يكون موجوداً في subscription_codes.
     - إذا كان مربوطاً بمستخدم آخر → يرفض.
     - بعد التفعيل: يُحدّث نفس الصف ببيانات الجهاز ويجعله نشطاً.
+    - ✨ يسجّل استخدام الكود في code_usage_logs (لكشف التكرار لاحقاً).
     """
     code_clean = req.code.strip().upper()
 
@@ -288,6 +299,16 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
 
     # هل مربوط بمستخدم آخر؟
     if bound_user and bound_user != req.user_id:
+        # ✨ سجّل محاولة الاستخدام من جهاز مختلف (مهم للتنبيه)
+        try:
+            crud.log_code_usage(
+                db,
+                code_clean,
+                used_by_user_id=req.user_id,
+                used_ip=req.public_ip,
+            )
+        except Exception:
+            db.rollback()
         return {
             "valid": False,
             "is_active": False,
@@ -324,6 +345,17 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
     })
     db.commit()
 
+    # ✨ سجّل الاستخدام الناجح
+    try:
+        crud.log_code_usage(
+            db,
+            code_clean,
+            used_by_user_id=req.user_id,
+            used_ip=req.public_ip,
+        )
+    except Exception:
+        db.rollback()
+
     return {
         "valid": True,
         "is_active": True,
@@ -341,11 +373,12 @@ def activate(req: ActivateRequest, db: Session = Depends(get_db)):
 def verify(req: VerifyRequest, db: Session = Depends(get_db)):
     """
     يتحقق من صلاحية الكود ويحدّث last_seen + saved_contacts_count.
+    ✨ يسجّل استخدام الكود أيضاً لاكتشاف التكرار.
     """
     code_clean = req.code.strip().upper()
 
     row = db.execute(text("""
-        SELECT code, is_active, is_subscribed, activated_at, expires_at, plan_label
+        SELECT code, is_active, is_subscribed, activated_at, expires_at, plan_label, bound_user_id
         FROM subscription_codes
         WHERE code = :code
     """), {"code": code_clean}).fetchone()
@@ -358,9 +391,8 @@ def verify(req: VerifyRequest, db: Session = Depends(get_db)):
             "message": "الكود غير موجود",
         }
 
-    _code, is_active, is_subscribed, activated_at, expires_at, _plan = row
+    _code, is_active, is_subscribed, activated_at, expires_at, _plan, bound_user = row
 
-    # expires_at في القاعدة BigInteger (epoch ms) حسب models.py
     is_expired = False
     if expires_at:
         try:
@@ -370,7 +402,6 @@ def verify(req: VerifyRequest, db: Session = Depends(get_db)):
 
     final_active = bool(is_active) and not is_expired
 
-    # حدّث بيانات الاتصال
     db.execute(text("""
         UPDATE subscription_codes SET
             last_seen = NOW(),
@@ -389,6 +420,18 @@ def verify(req: VerifyRequest, db: Session = Depends(get_db)):
     })
     db.commit()
 
+    # ✨ سجّل محاولة الاستخدام — حتى لو الكود منتهٍ أو غير نشط،
+    #     لأننا نريد كشف الجهاز الذي يحاول استخدامه.
+    try:
+        crud.log_code_usage(
+            db,
+            code_clean,
+            used_by_user_id=req.user_id,
+            used_ip=req.public_ip,
+        )
+    except Exception:
+        db.rollback()
+
     return {
         "valid": final_active,
         "is_active": final_active,
@@ -403,9 +446,7 @@ def verify(req: VerifyRequest, db: Session = Depends(get_db)):
 
 @router.post("/subscription/usage", dependencies=[Depends(verify_mobile_key)])
 def usage(req: UsageRequest, db: Session = Depends(get_db)):
-    """
-    يُسجّل استخدام الحصص على نفس صف الكود.
-    """
+    """يُسجّل استخدام الحصص على نفس صف الكود."""
     code_clean = req.code.strip().upper()
 
     db.execute(text("""
@@ -428,10 +469,7 @@ def usage(req: UsageRequest, db: Session = Depends(get_db)):
 
 @router.post("/subscription/review-request", dependencies=[Depends(verify_mobile_key)])
 def review_request(req: ReviewRequest, db: Session = Depends(get_db)):
-    """
-    يستقبل طلب مراجعة/تفعيل يدوي.
-    يُحفظ كصف بكود REV-XXXX مع notes.
-    """
+    """يستقبل طلب مراجعة/تفعيل يدوي."""
     code = f"REV-{_uuid.uuid4().hex[:12].upper()}"
 
     db.execute(text("""
@@ -468,14 +506,9 @@ def review_request(req: ReviewRequest, db: Session = Depends(get_db)):
 
 @router.post("/clients/sync", dependencies=[Depends(verify_mobile_key)])
 def sync_clients(req: ClientSyncRequest, db: Session = Depends(get_db)):
-    """
-    مزامنة عملاء.
-    - لا يوجد جدول عملاء → نحدّث فقط saved_contacts_count في صف bound_user_id.
-    - إذا لم يوجد صف بهذا user_id → نبحث بـ public_ip.
-    """
+    """مزامنة عملاء."""
     count = len(req.clients)
 
-    # 1) حاول التحديث عبر bound_user_id
     result = db.execute(text("""
         UPDATE subscription_codes SET
             saved_contacts_count = :count,
@@ -485,7 +518,6 @@ def sync_clients(req: ClientSyncRequest, db: Session = Depends(get_db)):
         WHERE bound_user_id = :uid
     """), {"count": count, "ip": req.public_ip, "uid": req.user_id})
 
-    # 2) إذا لم يتأثر أي صف → جرّب عبر public_ip
     if result.rowcount == 0 and req.public_ip:
         db.execute(text("""
             UPDATE subscription_codes SET
@@ -502,3 +534,40 @@ def sync_clients(req: ClientSyncRequest, db: Session = Depends(get_db)):
         "message": f"تم استلام {count} عميل (العدد محفوظ في saved_contacts_count)",
         "count": count,
     }
+
+
+# ═══════════════════════════════════════════════════════════
+#  ✨ تسجيل استخدام كود (endpoint مستقل + داخلي)
+# ═══════════════════════════════════════════════════════════
+
+@router.post(
+    "/mobile/subscriptions/{code}/use",
+    dependencies=[Depends(verify_mobile_key)],
+)
+def log_usage(code: str, req: UsageLogRequest, db: Session = Depends(get_db)):
+    """
+    endpoint مستقل لتسجيل استخدام كود من جهاز.
+    يُستخدم من التطبيق عند التحقق من صحة الكود أو قبل التفعيل.
+
+    يمكن أن يكون مفيداً أيضاً للاختبار أو للوحة التحكم عند الحاجة
+    لتسجيل استخدام يدوي.
+
+    يُرجع is_duplicate=True إذا كان الجهاز مختلفاً عن bound_user_id.
+    """
+    user_id = req.user_id or req.device_id
+    if not user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="user_id أو device_id مطلوب",
+        )
+
+    result = crud.log_code_usage(
+        db,
+        code,
+        used_by_user_id=user_id,
+        used_ip=req.ip,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="الكود غير موجود")
+
+    return {"ok": True, **result}
