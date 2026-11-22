@@ -1,4 +1,7 @@
-from sqlalchemy import Column, Integer, String, Boolean, BigInteger, DateTime, Text, text
+from sqlalchemy import (
+    Column, Integer, String, Boolean, BigInteger, DateTime, Text, text,
+    ForeignKey, Index,
+)
 from datetime import datetime
 from .database import Base
 
@@ -35,7 +38,7 @@ class Subscription(Base):
     notes = Column(String, nullable=False, server_default="")
 
     # ═══════════════════════════════════════════════════════
-    #  ✨ جديد: أعمدة الجهاز (يستخدمها mobile_api.py)
+    #  أعمدة الجهاز (يستخدمها mobile_api.py)
     # ═══════════════════════════════════════════════════════
     device_id = Column(String, nullable=True, server_default="")
     android_id = Column(String, nullable=True)
@@ -59,4 +62,51 @@ class Subscription(Base):
 
     # ---- طوابع زمنية (موجودة) ----
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"))
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=text("NOW()"), onupdate=datetime.utcnow)
+    updated_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("NOW()"),
+        onupdate=datetime.utcnow,
+    )
+
+
+# ═══════════════════════════════════════════════════════════
+#  ✨ جديد: سجل استخدامات الأكواد (لكشف التكرار)
+# ═══════════════════════════════════════════════════════════
+class CodeUsageLog(Base):
+    """
+    سجل كل استخدام لكود اشتراك من جهاز.
+    يُستخدم لاكتشاف تكرار استخدام الكود من أجهزة مختلفة
+    عبر مقارنة used_by_user_id مع bound_user_id في Subscription.
+
+    - code: الكود المستخدم (FK → subscription_codes.code)
+    - used_by_user_id: معرّف الجهاز الذي استخدم الكود
+    - used_ip: عنوان IP وقت الاستخدام (اختياري — للتحقق الإضافي)
+    - used_at: وقت الاستخدام
+
+    عند حذف الاشتراك، تُحذف سجلاته تلقائياً بفضل ondelete="CASCADE".
+    عند إعادة توليد الكود (regenerate)، تُنقل السجلات للكود الجديد
+    (تتم العملية في crud.rename_subscription_code).
+    """
+    __tablename__ = "code_usage_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    code = Column(
+        String,
+        ForeignKey("subscription_codes.code", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    used_by_user_id = Column(String, index=True, nullable=True)
+    used_ip = Column(String, nullable=True)
+    used_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        nullable=False,
+        index=True,
+    )
+
+    # فهرس مركّب لتسريع استعلام "آخر استخدام لكل كود"
+    __table_args__ = (
+        Index("ix_usage_code_id", "code", "id"),
+    )
