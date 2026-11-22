@@ -3,50 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-    <title>لوحة إدارة أكواد الاشتراك السنوي</title>
+    <title>لوحة إدارة أكواد الاشتراك</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-    <!-- شريط علوي للجوال -->
     <div class="mobile-topbar">
-        <span class="mobile-title">📋 إدارة الاشتراكات السنوية</span>
+        <span class="mobile-title">📋 إدارة الاشتراكات</span>
         <button class="mobile-add-btn" onclick="scrollToForm()">➕ كود جديد</button>
     </div>
 
-    <!-- شريط تنبيه تعذر الاتصال -->
     <div id="db-alert" class="db-alert hidden">
         ⚠️ <span id="db-alert-msg">تعذّر الاتصال بقاعدة البيانات</span>
-        <button onclick="loadSubs()">🔄 إعادة المحاولة</button>
+        <button onclick="loadSubs(false)">🔄 إعادة المحاولة</button>
     </div>
 
     <div class="container">
-        <h1>📋 لوحة إدارة أكواد الاشتراك السنوي</h1>
+        <h1>📋 لوحة إدارة أكواد الاشتراك</h1>
 
-        <!-- ===== شريط بحث سريع ===== -->
+        <!-- بحث سريع -->
         <div class="search-bar">
             <input type="text" id="table-search"
                    placeholder="🔍 بحث في الجدول (كود، جهاز، IP، موديل، UUID...)"
                    oninput="filterTable(this.value)">
-            <button type="button" onclick="loadSubs()">🔄 تحديث</button>
+            <span id="refresh-indicator" class="refresh-indicator" title="تحديث تلقائي كل 15 ثانية">🔄</span>
+            <button type="button" onclick="loadSubs(false)">🔄 تحديث</button>
         </div>
 
-        <!-- ===== نموذج إضافة/تعديل ===== -->
+        <!-- نموذج إضافة/تعديل -->
         <div class="form-card" id="form-card">
-            <h2 id="form-title">➕ إضافة كود اشتراك سنوي جديد</h2>
+            <h2 id="form-title">➕ إضافة كود اشتراك جديد</h2>
             <form id="sub-form">
                 <input type="hidden" id="sub-code-hidden">
 
-                <!-- الكود: للعرض فقط + زر توليد -->
+                <!-- الكود -->
                 <div>
                     <label for="code">كود الاشتراك (يُولَّد تلقائياً)</label>
                     <div class="code-input-group">
                         <input type="text" id="code" readonly placeholder="سيتم توليده تلقائياً">
                         <button type="button" onclick="setGeneratedCode()" title="توليد كود جديد">🎲</button>
                     </div>
+                    <small id="code-warn" class="user-hint" style="color:#dc2626;"></small>
                 </div>
 
-                <!-- الجهاز المرتبط: بحث + اختيار -->
+                <!-- الخطة -->
+                <div>
+                    <label for="plan_select">الخطة</label>
+                    <select id="plan_select" onchange="onPlanChange()">
+                        <option value="5">اشتراك 5 أشهر</option>
+                        <option value="12" selected>اشتراك 12 شهر</option>
+                    </select>
+                </div>
+
+                <!-- تاريخ البدء -->
+                <div>
+                    <label for="start_date">تاريخ البدء</label>
+                    <input type="date" id="start_date" onchange="recalcExpiry()">
+                </div>
+
+                <!-- تاريخ الانتهاء (عرض فقط) -->
+                <div>
+                    <label for="expires_display">تاريخ الانتهاء (يُحسب تلقائياً)</label>
+                    <input type="text" id="expires_display" readonly placeholder="—">
+                    <input type="hidden" id="expires_at">
+                </div>
+
+                <!-- الجهاز المرتبط -->
                 <div class="user-picker" style="grid-column:1/-1;">
                     <label for="user-search">الجهاز المرتبط (يُجلب من قاعدة البيانات)</label>
                     <div class="user-picker-box">
@@ -83,16 +105,14 @@
                     <input type="text" id="bound_ip" placeholder="يُملأ تلقائياً من بيانات الجهاز">
                 </div>
 
-                <!-- تاريخ الانتهاء -->
+                <!-- الحالة -->
                 <div>
-                    <label for="expires_at">تاريخ الانتهاء (epoch ms)</label>
-                    <input type="number" id="expires_at" step="1" placeholder="اتركه فارغاً للتفعيل التلقائي">
+                    <label for="is_active">الحالة</label>
+                    <select id="is_active">
+                        <option value="true" selected>✅ مفعّل</option>
+                        <option value="false">⛔ موقوف</option>
+                    </select>
                 </div>
-
-                <label class="checkbox-row">
-                    <input type="checkbox" id="is_active" checked>
-                    <span>مفعّل</span>
-                </label>
 
                 <div style="grid-column:1/-1;">
                     <label for="notes">ملاحظات</label>
@@ -106,13 +126,15 @@
             </form>
         </div>
 
-        <!-- ===== جدول الاشتراكات (16 عمودًا) ===== -->
+        <!-- جدول الاشتراكات -->
         <div class="table-wrap">
             <table>
                 <thead>
                     <tr>
                         <th>الكود</th>
+                        <th>الخطة</th>
                         <th>الجهاز المرتبط</th>
+                        <th>آخر جهاز مستخدم</th>
                         <th>الموديل</th>
                         <th>نظام التشغيل</th>
                         <th>IP عام</th>
@@ -141,13 +163,58 @@
         const USERS_API = "/api/users";
         let retryTimer = null;
 
-        const FIXED_PLAN_LABEL = "اشتراك سنوي";
-        const FIXED_DURATION_MINUTES = 525600;
+        // الخطط المتاحة
+        const PLANS = {
+            "5":  { months: 5,  label: "5 أشهر",  minutes: 5 * 30 * 24 * 60 },
+            "12": { months: 12, label: "12 شهر",  minutes: 12 * 30 * 24 * 60 }
+        };
 
         let allUsers = [];
         let selectedUser = null;
         let allSubs = [];
         let userSearchTimer = null;
+
+        /* ===== التحديث التلقائي ===== */
+        const AUTO_REFRESH_MS = 15000;
+        let autoRefreshTimer = null;
+        let isRefreshing = false;
+        let lastDataHash = "";
+
+        function hashData(data) {
+            try {
+                return data.map(s =>
+                    `${s.code}|${s.bound_user_id}|${s.expires_at}|${s.is_active}|${s.last_used_user_id || ""}|${s.last_seen || ""}`
+                ).join("§");
+            } catch { return String(Date.now()); }
+        }
+
+        function spinIndicator() {
+            const el = document.getElementById("refresh-indicator");
+            if (!el) return;
+            el.classList.add("spinning");
+            setTimeout(() => el.classList.remove("spinning"), 600);
+        }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            autoRefreshTimer = setInterval(() => {
+                if (document.visibilityState === "visible") {
+                    loadSubs(true);
+                }
+            }, AUTO_REFRESH_MS);
+        }
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+        }
+
+        document.addEventListener("visibilitychange", () => {
+            if (document.visibilityState === "visible") loadSubs(true);
+        });
+        window.addEventListener("online", () => loadSubs(true));
+        window.addEventListener("focus", () => loadSubs(true));
 
         /* ===== أدوات عامة ===== */
         function scrollToForm() {
@@ -166,13 +233,38 @@
             ).join("-");
         }
 
+        function generateUniqueCode(maxTries = 20) {
+            const existing = new Set(allSubs.map(s => String(s.code).toUpperCase()));
+            for (let i = 0; i < maxTries; i++) {
+                const c = generateCode();
+                if (!existing.has(c)) return c;
+            }
+            return generateCode();
+        }
+
         function setGeneratedCode() {
-            document.getElementById("code").value = generateCode();
+            const code = generateUniqueCode();
+            document.getElementById("code").value = code;
+            document.getElementById("code-warn").textContent = "";
+            verifyCodeOnServer(code);
+        }
+
+        async function verifyCodeOnServer(code) {
+            try {
+                const res = await fetch(`${API}?code=${encodeURIComponent(code)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data.some(s => String(s.code).toUpperCase() === code.toUpperCase())) {
+                        document.getElementById("code-warn").textContent =
+                            "⚠️ هذا الكود موجود مسبقاً، أعد التوليد.";
+                    }
+                }
+            } catch { /* تجاهل */ }
         }
 
         function scheduleRetry() {
             if (retryTimer) return;
-            retryTimer = setTimeout(() => { retryTimer = null; loadSubs(); }, 10000);
+            retryTimer = setTimeout(() => { retryTimer = null; loadSubs(true); }, 10000);
         }
         function cancelRetry() { if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; } }
         function showDbAlert(msg) {
@@ -189,7 +281,7 @@
                     try {
                         const data = await res.json();
                         detail = data.detail || data.message || JSON.stringify(data);
-                    } catch { /* رد ليس JSON */ }
+                    } catch {}
                     alert(`❌ ${detail}`);
                     return null;
                 }
@@ -216,7 +308,6 @@
                        d.toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
             } catch { return "-"; }
         }
-        function epochToInput(ms) { return ms ? String(ms) : ""; }
 
         function statusBadge(s) {
             if (!s.is_active) return `<span class="status inactive">متوقف</span>`;
@@ -234,7 +325,6 @@
                 .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
         }
 
-        // تشفير JSON لتمريره داخل onclick بأمان
         function encodeForAttr(obj) {
             return encodeURIComponent(JSON.stringify(obj));
         }
@@ -251,7 +341,15 @@
             return max != null ? `${used} / ${max}` : `${used} / ∞`;
         }
 
-        /* ===== تحميل الأجهزة (بحث من الخادم) ===== */
+        /* ===== كشف تكرار الكود على جهاز آخر ===== */
+        function isDuplicated(s) {
+            const last = s.last_used_user_id || s.used_by_user_id || s.current_user_id;
+            if (!last) return false;
+            if (!s.bound_user_id) return false;
+            return String(last) !== String(s.bound_user_id);
+        }
+
+        /* ===== تحميل الأجهزة ===== */
         async function searchUsers(query) {
             try {
                 const url = query.trim()
@@ -300,7 +398,6 @@
             }, 300);
         }
 
-        /* ===== اختيار جهاز ===== */
         function selectUser(u, updateInput = true) {
             selectedUser = u;
             document.getElementById("bound_user_id").value = userId(u);
@@ -373,17 +470,48 @@
             });
         }
 
+        /* ===== حساب تواريخ الخطة ===== */
+        function onPlanChange() { recalcExpiry(); }
+
+        function recalcExpiry() {
+            const planKey = document.getElementById("plan_select").value;
+            const plan = PLANS[planKey];
+            const startVal = document.getElementById("start_date").value;
+            if (!startVal) {
+                document.getElementById("expires_display").value = "—";
+                document.getElementById("expires_at").value = "";
+                return;
+            }
+            const start = new Date(startVal + "T00:00:00");
+            const end = new Date(start);
+            end.setMonth(end.getMonth() + plan.months);
+            const ms = end.getTime();
+            document.getElementById("expires_at").value = ms;
+            document.getElementById("expires_display").value = end.toLocaleDateString("ar-EG");
+        }
+
+        function inferPlanKey(s) {
+            if (!s.expires_at || !s.created_at) return "12";
+            const diffMs = Number(s.expires_at) - new Date(s.created_at).getTime();
+            const days = diffMs / (1000 * 60 * 60 * 24);
+            if (days > 200) return "12";
+            return "5";
+        }
+
         /* ===== الجدول ===== */
         function renderTable(data) {
             allSubs = data;
             const tbody = document.getElementById("subs-table");
             if (!data.length) {
-                tbody.innerHTML = `<tr><td colspan="16" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="18" style="text-align:center;padding:24px;">لا توجد أكواد بعد</td></tr>`;
                 return;
             }
             tbody.innerHTML = data.map(s => {
                 const code = s.code;
+                const planKey = inferPlanKey(s);
+                const planLabel = PLANS[planKey]?.label || "-";
                 const deviceId = s.bound_user_id || "-";
+                const lastDevice = s.last_used_user_id || s.used_by_user_id || "-";
                 const model = s.device_model || "-";
                 const os = s.os_version || "-";
                 const publicIp = s.public_ip || "-";
@@ -397,11 +525,19 @@
                 const appVer = s.app_version || "-";
                 const expires = s.is_lifetime ? "∞" : fmtEpoch(s.expires_at);
 
+                const dup = isDuplicated(s);
+                const rowClass = dup ? "row-duplicate" : "";
+                const codeBadge = dup
+                    ? `<span class="dup-badge" title="الكود استُخدم من جهاز مختلف عن المرتبط">⚠️ مكرر</span>`
+                    : "";
+
                 const encoded = encodeForAttr(s);
                 return `
-                <tr>
-                    <td data-label="الكود" class="code-cell mono">${escapeHtml(code)}</td>
+                <tr class="${rowClass}">
+                    <td data-label="الكود" class="code-cell mono">${escapeHtml(code)} ${codeBadge}</td>
+                    <td data-label="الخطة">${planLabel}</td>
                     <td data-label="الجهاز المرتبط" class="mono">${escapeHtml(String(deviceId))}</td>
+                    <td data-label="آخر جهاز مستخدم" class="mono ${dup ? 'dup-cell' : ''}">${escapeHtml(String(lastDevice))}</td>
                     <td data-label="الموديل">${escapeHtml(String(model))}</td>
                     <td data-label="نظام التشغيل">${escapeHtml(String(os))}</td>
                     <td data-label="IP عام" class="mono">${escapeHtml(String(publicIp))}</td>
@@ -427,7 +563,9 @@
             }).join("");
         }
 
-        async function loadSubs() {
+        async function loadSubs(silent = false) {
+            if (isRefreshing) return;
+            isRefreshing = true;
             try {
                 const res = await fetch(API);
                 if (!res.ok) {
@@ -435,24 +573,31 @@
                     try {
                         const errData = await res.json();
                         detail = errData.detail || errData.message || JSON.stringify(errData);
-                    } catch { /* رد ليس JSON */ }
-                    showDbAlert(`تعذّر تحميل الأكواد: ${detail}`);
-                    document.getElementById("subs-table").innerHTML = "";
+                    } catch {}
+                    if (!silent) showDbAlert(`تعذّر تحميل الأكواد: ${detail}`);
                     scheduleRetry();
                     return;
                 }
                 hideDbAlert();
                 cancelRetry();
                 const data = await res.json();
-                renderTable(data);
+                const newHash = hashData(data);
+
+                if (newHash !== lastDataHash || !silent) {
+                    lastDataHash = newHash;
+                    renderTable(data);
+                    spinIndicator();
+                }
             } catch (err) {
-                showDbAlert(`فشل الاتصال بالخادم: ${err.message}`);
-                document.getElementById("subs-table").innerHTML = "";
-                scheduleRetry();
+                if (!silent) {
+                    showDbAlert(`فشل الاتصال بالخادم: ${err.message}`);
+                    scheduleRetry();
+                }
+            } finally {
+                isRefreshing = false;
             }
         }
 
-        /* ===== فلترة الجدول (محلياً) ===== */
         function filterTable(q) {
             const query = q.trim().toLowerCase();
             if (!query) { renderTable(allSubs); return; }
@@ -469,23 +614,21 @@
             renderTable(filtered);
         }
 
-        /* ===== تفعيل / إيقاف سريع ===== */
         async function toggleActive(code) {
             const result = await safeFetch(
                 `${API}/${encodeURIComponent(code)}/toggle`,
                 { method: "PATCH" }
             );
-            if (result) loadSubs();
+            if (result) loadSubs(false);
         }
 
-        /* ===== إعادة توليد كود ===== */
         async function regenCode(oldCode) {
             if (!confirm(`هل تريد توليد كود جديد بدلاً من "${oldCode}"؟`)) return;
             const result = await safeFetch(
                 `${API}/${encodeURIComponent(oldCode)}/regenerate`,
                 { method: "POST" }
             );
-            if (result) loadSubs();
+            if (result) loadSubs(false);
         }
 
         /* ===== إرسال النموذج ===== */
@@ -497,14 +640,17 @@
             const codeValue = document.getElementById("code").value.trim().toUpperCase();
             if (!codeValue) { alert("❌ يرجى توليد كود أولاً"); return; }
 
+            const planKey = document.getElementById("plan_select").value;
+            const plan = PLANS[planKey];
+
             const body = {
                 code: codeValue,
-                plan_label: FIXED_PLAN_LABEL,
+                plan_label: plan.label,
                 is_subscribed: true,
-                is_active: document.getElementById("is_active").checked,
+                is_active: document.getElementById("is_active").value === "true",
                 is_trial: false,
                 is_lifetime: false,
-                duration_minutes: FIXED_DURATION_MINUTES,
+                duration_minutes: plan.minutes,
                 max_contacts: null,
                 used_contacts: 0,
                 bound_user_id: document.getElementById("bound_user_id").value || null,
@@ -525,7 +671,7 @@
 
             if (result) {
                 resetForm();
-                loadSubs();
+                loadSubs(false);
             }
         });
 
@@ -534,16 +680,21 @@
             document.getElementById("sub-code-hidden").value = s.code;
             document.getElementById("code").value = s.code;
             document.getElementById("bound_ip").value = s.bound_ip || "";
-            document.getElementById("expires_at").value = epochToInput(s.expires_at);
-            document.getElementById("is_active").checked = !!s.is_active;
+
+            const planKey = inferPlanKey(s);
+            document.getElementById("plan_select").value = planKey;
+
+            const start = s.created_at ? new Date(s.created_at) : new Date();
+            document.getElementById("start_date").value = start.toISOString().slice(0, 10);
+            recalcExpiry();
+
+            document.getElementById("is_active").value = s.is_active ? "true" : "false";
             document.getElementById("notes").value = s.notes || "";
 
             if (s.bound_user_id) {
-                // نبحث عن الجهاز من الخادم إن لم يكن محمّلاً
                 const u = allUsers.find(x => String(userId(x)) === String(s.bound_user_id));
                 if (u) selectUser(u);
                 else {
-                    // نعرض بيانات الصف نفسه (s) كجهاز
                     selectUser({
                         bound_user_id: s.bound_user_id,
                         bound_ip: s.bound_ip,
@@ -569,27 +720,32 @@
             window.scrollTo({ top: 0, behavior: "smooth" });
         }
 
-        /* ===== حذف ===== */
         async function deleteSub(code) {
             if (!confirm(`هل أنت متأكد من حذف الكود "${code}"؟`)) return;
             const result = await safeFetch(`${API}/${encodeURIComponent(code)}`, { method: "DELETE" });
-            if (result) loadSubs();
+            if (result) loadSubs(false);
         }
 
         /* ===== إعادة تعيين ===== */
         function resetForm() {
             document.getElementById("sub-form").reset();
             document.getElementById("sub-code-hidden").value = "";
-            document.getElementById("is_active").checked = true;
-            document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك سنوي جديد";
+            document.getElementById("is_active").value = "true";
+            document.getElementById("plan_select").value = "12";
+            document.getElementById("start_date").value = new Date().toISOString().slice(0, 10);
+            recalcExpiry();
+            document.getElementById("form-title").textContent = "➕ إضافة كود اشتراك جديد";
             clearUser();
             setGeneratedCode();
         }
 
         /* ===== التهيئة ===== */
         bindUserPicker();
+        document.getElementById("start_date").value = new Date().toISOString().slice(0, 10);
+        recalcExpiry();
         setGeneratedCode();
-        loadSubs();
+        loadSubs(false);
+        startAutoRefresh();
     </script>
 </body>
 </html>
