@@ -21,10 +21,36 @@ def get_subscriptions(db: Session, skip: int = 0, limit: int = 1000):
 
 def get_subscriptions_full(db: Session, skip: int = 0, limit: int = 1000):
     """
-    ✨ النسخة الجديدة: ترجع كل الأعمدة (بما فيها حقول الجهاز) من
-    subscription_codes مباشرة عبر SQL — نفس أسلوب get_devices.
-    تُستخدمها الواجهة الجديدة لعرض 16 عمودًا.
+    ✨ النسخة الكاملة: ترجع كل الأعمدة (بما فيها حقول الجهاز)
+    + آخر جهاز استخدم الكود (last_used_user_id) لكشف التكرار.
+
+    تعمل مع أو بدون جدول code_usage_logs — إن لم يوجد،
+    يُعاد last_used_user_id = None لكل صف.
     """
+    has_log = _table_exists(db, "code_usage_logs")
+
+    if has_log:
+        sql = text(f"""
+            SELECT
+                {_COLUMNS_PREFIXED},
+                lul.last_used_user_id
+            FROM subscription_codes sc
+            LEFT JOIN (
+                SELECT cul.code, cul.used_by_user_id AS last_used_user_id
+                FROM code_usage_logs cul
+                INNER JOIN (
+                    SELECT code, MAX(id) AS max_id
+                    FROM code_usage_logs
+                    GROUP BY code
+                ) m ON cul.code = m.code AND cul.id = m.max_id
+            ) lul ON sc.code = lul.code
+            ORDER BY sc.created_at DESC
+            OFFSET :skip LIMIT :limit
+        """)
+        rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
+        return [_serialize_full_row(r) for r in rows]
+
+    # fallback: بدون جدول الاستخدامات
     sql = text(f"""
         SELECT {_DEVICE_COLUMNS_SQL}
         FROM subscription_codes
@@ -32,7 +58,10 @@ def get_subscriptions_full(db: Session, skip: int = 0, limit: int = 1000):
         OFFSET :skip LIMIT :limit
     """)
     rows = db.execute(sql, {"skip": skip, "limit": limit}).fetchall()
-    return [_serialize_full_row(r) for r in rows]
+    result = [_serialize_full_row(r) for r in rows]
+    for item in result:
+        item.setdefault("last_used_user_id", None)
+    return result
 
 
 def get_subscription(db: Session, code: str):
@@ -77,8 +106,22 @@ def update_subscription(db: Session, code: str, sub: schemas.SubscriptionUpdate)
 
 
 def delete_subscription(db: Session, code: str):
+    """
+    حذف اشتراك + سجلات استخدامه (يدوياً إن لم يكن CASCADE مفعّلاً).
+    """
     db_sub = get_subscription(db, code)
     if db_sub:
+        # احذف سجلات الاستخدام أولاً (آمن حتى لو لم يوجد الجدول)
+        try:
+            db.execute(
+                text("DELETE FROM code_usage_logs WHERE code = :code"),
+                {"code": code.strip().upper()},
+            )
+        except Exception:
+            db.rollback()
+            db_sub = get_subscription(db, code)
+            if not db_sub:
+                return None
         db.delete(db_sub)
         db.commit()
     return db_sub
@@ -104,12 +147,9 @@ def get_subscription_by_user(db: Session, user_id: str):
 
 def rename_subscription_code(db: Session, old_code: str, new_code: str):
     """
-    يغيّر كود الاشتراك مع الحفاظ على كل الحقول (بما فيها المفتاح الأساسي).
-    يعيد السجل المحدّث أو None إن لم يوجد القديم.
-
-    ملاحظة: UPDATE على عمود المفتاح الأساسي مدعوم في PostgreSQL طالما
-    لا توجد مفاتيح أجنبية تشير إليه. جدول subscription_codes لا يشير
-    إليه أي جدول آخر حسب ما نراه، لذا العملية آمنة.
+    يغيّر كود الاشتراك مع الحفاظ على كل الحقول (بما فيها المفتاح الأساسي)
+    + ينقل سجلات الاستخدام إلى الكود الجديد إن وُجد جدولها.
+    يعيد السجل المحدّث أو None إن لم يوجد القديم/تكرر الجديد.
     """
     old_code = old_code.strip().upper()
     new_code = new_code.strip().upper()
@@ -127,11 +167,111 @@ def rename_subscription_code(db: Session, old_code: str, new_code: str):
     if not db_sub:
         return None
 
+    # ✨ انقل سجلات الاستخدام (إن وُجد الجدول)
+    if _table_exists(db, "code_usage_logs"):
+        try:
+            db.execute(
+                text("UPDATE code_usage_logs SET code = :new WHERE code = :old"),
+                {"new": new_code, "old": old_code},
+            )
+        except Exception:
+            db.rollback()
+            # أعد الجلب بعد rollback
+            db_sub = get_subscription(db, old_code)
+            if not db_sub:
+                return None
+
     db_sub.code = new_code
     db_sub.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(db_sub)
     return db_sub
+
+
+# ============================================================
+# ✨ سجل استخدامات الأكواد (لكشف التكرار)
+# ============================================================
+
+def log_code_usage(
+    db: Session,
+    code: str,
+    used_by_user_id: str,
+    used_ip: str = None,
+):
+    """
+    يسجّل استخدام الكود من جهاز.
+    يعيد dict فيه is_duplicate لو كان الجهاز مختلف عن bound_user_id.
+    يعيد None إذا لم يوجد الكود.
+    """
+    code = code.strip().upper()
+    sub = get_subscription(db, code)
+    if not sub:
+        return None
+
+    # إن لم يوجد جدول السجلات، لا نفشل — نعيد النتيجة بدون تسجيل
+    if _table_exists(db, "code_usage_logs"):
+        try:
+            log = models.CodeUsageLog(
+                code=code,
+                used_by_user_id=used_by_user_id,
+                used_ip=used_ip,
+                used_at=datetime.utcnow(),
+            )
+            db.add(log)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    is_duplicate = (
+        bool(sub.bound_user_id)
+        and str(sub.bound_user_id) != str(used_by_user_id)
+    )
+    return {
+        "code": code,
+        "used_by_user_id": used_by_user_id,
+        "bound_user_id": sub.bound_user_id,
+        "is_duplicate": is_duplicate,
+    }
+
+
+def get_last_used_user_id(db: Session, code: str):
+    """آخر جهاز استخدم الكود (أو None)."""
+    if not _table_exists(db, "code_usage_logs"):
+        return None
+    try:
+        row = db.execute(
+            text("""
+                SELECT used_by_user_id
+                FROM code_usage_logs
+                WHERE code = :code
+                ORDER BY id DESC
+                LIMIT 1
+            """),
+            {"code": code.strip().upper()},
+        ).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def get_usage_logs(db: Session, code: str, limit: int = 50):
+    """كل سجلات استخدام كود معيّن (للعرض التفصيلي إن احتجت)."""
+    if not _table_exists(db, "code_usage_logs"):
+        return []
+    try:
+        rows = db.execute(
+            text("""
+                SELECT id, code, used_by_user_id, used_ip, used_at
+                FROM code_usage_logs
+                WHERE code = :code
+                ORDER BY id DESC
+                LIMIT :limit
+            """),
+            {"code": code.strip().upper(), "limit": limit},
+        ).fetchall()
+        return [_serialize_full_row(r) for r in rows]
+    except Exception:
+        return []
 
 
 # ============================================================
@@ -176,6 +316,13 @@ _DEVICE_COLUMNS_SQL = """
     first_seen,
     last_seen
 """
+
+# نسخة مع بادئة sc. (تُستخدم في JOIN)
+_COLUMNS_PREFIXED = ", ".join(
+    f"sc.{col.strip()}"
+    for col in _DEVICE_COLUMNS_SQL.split(",")
+    if col.strip()
+)
 
 
 def get_devices(db: Session, skip: int = 0, limit: int = 500):
@@ -268,7 +415,7 @@ def get_ips_for_device(db: Session, device_id: str, limit: int = 20):
 
 
 # ============================================================
-# دالة مساعدة: تحويل صف كامل إلى dict JSON-friendly
+# دوال مساعدة
 # ============================================================
 
 def _serialize_full_row(row) -> dict:
@@ -283,3 +430,18 @@ def _serialize_full_row(row) -> dict:
         if isinstance(v, datetime):
             m[k] = v.isoformat()
     return m
+
+
+def _table_exists(db: Session, table_name: str) -> bool:
+    """
+    يتحقق من وجود جدول (PostgreSQL عبر to_regclass).
+    يعيد False بأمان إن فشل الاستعلام.
+    """
+    try:
+        result = db.execute(
+            text("SELECT to_regclass(:t)"),
+            {"t": table_name},
+        ).scalar()
+        return result is not None
+    except Exception:
+        return False
